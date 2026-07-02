@@ -1,0 +1,10 @@
+{"id": "chairs_4_weeks", "type": "numeric", "answer": 352, "prompt": "A workshop builds 14 chairs per weekday and 9 chairs per day on weekends. How many chairs does it build in exactly 4 weeks?"}
+{"id": "linear_equation", "type": "numeric", "answer": -12, "prompt": "Solve for x: 3x + 7 = 2x - 5."}
+{"id": "definite_integral", "type": "numeric", "answer": 16, "prompt": "Compute the definite integral of 6x^2 dx from x = 0 to x = 2."}
+{"id": "dice_sum_9", "type": "numeric", "answer": 0.11111, "rel_tol": 0.02, "prompt": "Two fair six-sided dice are rolled. What is the probability that their sum equals 9? Give the answer as a decimal."}
+{"id": "compound_interest", "type": "numeric", "answer": 5624.32, "rel_tol": 0.001, "prompt": "You invest $5000 at 4% annual interest, compounded yearly. What is the balance after 3 years, in dollars?"}
+{"id": "derivative_at_2", "type": "numeric", "answer": 8, "prompt": "Let f(x) = x^3 - 4x. What is f'(2)?"}
+{"id": "gcd_252_198", "type": "numeric", "answer": 18, "prompt": "What is the greatest common divisor of 252 and 198?"}
+{"id": "sum_first_40_odd", "type": "numeric", "answer": 1600, "prompt": "What is the sum of the first 40 positive odd numbers?"}
+{"id": "det_2x2", "type": "numeric", "answer": 5, "prompt": "Compute the determinant of the 2x2 matrix [[2, 3], [1, 4]]."}
+{"id": "log2_one_32nd", "type": "numeric", "answer": -5, "prompt": "Evaluate log base 2 of (1/32)."}

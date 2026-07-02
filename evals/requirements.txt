@@ -1,0 +1,4 @@
+# Phase 6 evaluation harness. Deliberately tiny: the harness talks to the
+# model over HTTP and grades mechanically, so no ML frameworks are needed.
+requests>=2.31
+pytest>=8.0

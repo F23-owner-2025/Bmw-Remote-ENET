@@ -1,0 +1,10 @@
+{"id": "spring_frequency", "type": "numeric", "answer": 3.183, "rel_tol": 0.02, "prompt": "A 2 kg mass hangs from a spring with stiffness k = 800 N/m. What is the natural frequency of vertical oscillation, in Hz?"}
+{"id": "series_resistor_power", "type": "numeric", "answer": 6, "prompt": "A 12 V source drives three resistors in series: 4 ohm, 6 ohm, and 2 ohm. How much power is dissipated in the 6 ohm resistor, in watts?"}
+{"id": "cantilever_deflection", "type": "numeric", "answer": 1.667, "rel_tol": 0.02, "prompt": "A cantilever beam of length 2 m carries a 1000 N point load at its free end. E = 200 GPa and I = 8e-6 m^4. What is the tip deflection, in millimeters?"}
+{"id": "voltage_divider", "type": "numeric", "answer": 3, "prompt": "A voltage divider uses R1 = 10 kohm (top) and R2 = 5 kohm (bottom) across a 9 V supply. What is the output voltage across R2, in volts?"}
+{"id": "water_heating_energy", "type": "numeric", "answer": 502320, "rel_tol": 0.01, "prompt": "How much energy, in joules, is needed to heat 2 kg of water from 20 C to 80 C? Use c = 4186 J/(kg*K)."}
+{"id": "projectile_range", "type": "numeric", "answer": 91.74, "rel_tol": 0.02, "prompt": "A projectile is launched at 30 m/s at 45 degrees above horizontal on level ground. Ignoring air resistance and using g = 9.81 m/s^2, what is its range, in meters?"}
+{"id": "rc_time_constant", "type": "numeric", "answer": 1.0, "prompt": "What is the time constant, in seconds, of an RC circuit with R = 10 kohm and C = 100 microfarads?"}
+{"id": "gear_ratio_rpm", "type": "numeric", "answer": 600, "prompt": "A 20-tooth gear spinning at 1800 rpm drives a 60-tooth gear. What is the driven gear's speed, in rpm?"}
+{"id": "hydrostatic_pressure", "type": "numeric", "answer": 98100, "rel_tol": 0.01, "prompt": "What is the gauge pressure, in pascals, at a depth of 10 m in fresh water? Use rho = 1000 kg/m^3 and g = 9.81 m/s^2."}
+{"id": "rod_axial_stress", "type": "numeric", "answer": 101.86, "rel_tol": 0.02, "prompt": "A steel rod of diameter 25 mm carries a 50 kN axial tensile load. What is the normal stress in the rod, in MPa?"}

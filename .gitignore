@@ -5,3 +5,4 @@ training/runs/
 training/artifacts/
 training/data/
 .ipynb_checkpoints/
+evals/results/
