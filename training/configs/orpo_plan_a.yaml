@@ -1,0 +1,77 @@
+# Plan A — Stage 2: ORPO preference pass with TRL, on the MERGED SFT model.
+#
+# Small, surgical pass: 5-15k pairs targeting plans-before-acting, correct
+# tool schema, and asks-clarifying-questions. Fresh small LoRA (r=32) on the
+# merged checkpoint keeps the stages decoupled.
+
+run_name: orpo_plan_a
+stage: orpo
+
+model:
+  # Base for THIS stage is the merged SFT checkpoint, not the HF repo.
+  # merge_and_export.py also reads model.name_or_path as the merge base, so
+  # this doubles as the correct base when merging the ORPO adapter.
+  name_or_path: artifacts/merged_sft_bf16
+  max_seq_len: 8192           # preference pairs are much shorter than SFT traces
+  load_in_4bit: true          # ORPO forwards chosen+rejected; 4-bit buys headroom
+  dtype: bfloat16
+  freeze_vision_tower: true
+  trust_remote_code: true
+
+lora:
+  r: 32                       # preference nudging needs less capacity than SFT
+  alpha: 64
+  dropout: 0.0
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  bias: none
+  use_rslora: false
+
+data:
+  train_path: data/preference_pairs.jsonl   # informational; orpo.pairs_path governs
+  eval_fraction: 0.0
+  shuffle_seed: 3407
+
+packing:
+  mode: none                  # TRL's ORPOTrainer handles its own batching
+
+mask_check:
+  enabled: false              # ORPO computes loss on completions by construction
+
+optim:
+  learning_rate: 5.0e-6       # preference stages want 10-20x lower LR than SFT
+  scheduler: cosine
+  min_lr_ratio: 0.1
+  warmup_ratio: 0.1           # proportionally longer warmup on a short run
+  num_epochs: 1.0             # preference passes overfit fast; 1 epoch
+  per_device_batch_size: 2
+  gradient_accumulation: 8    # effective pair-batch 16
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  optimizer: adamw_8bit
+  seed: 3407
+  logging_steps: 5
+  gradient_checkpointing: true
+
+checkpointing:
+  output_dir: runs/orpo_plan_a
+  save_steps: 50
+  save_total_limit: 3
+  resume: auto
+
+storage:
+  min_free_gb_before_training: 20
+  min_free_gb_per_checkpoint: 5
+
+orpo:
+  beta: 0.1                   # the standard ORPO lambda; raise to 0.2-0.5 only
+  max_length: 8192            # if preference margins stay flat
+  max_prompt_length: 6144
+  pairs_path: data/preference_pairs.jsonl
+  merged_model_path: artifacts/merged_sft_bf16

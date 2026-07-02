@@ -1,0 +1,77 @@
+# Fallback — Stage 1 SFT as QLoRA (4-bit NF4 base).
+#
+# Use this instead of sft_plan_a.yaml if either:
+#   * bf16 LoRA OOMs at 16K on your exact Unsloth/CUDA version (hybrid-arch
+#     kernels are new; memory behavior may differ from Qwen3.5's 56GB), or
+#   * you decide to push max_seq_len to 32K for very long trajectories.
+#
+# Expected quality delta vs bf16-base LoRA: ~1-2% on downstream evals.
+
+run_name: sft_qlora_fallback
+stage: sft
+
+model:
+  name_or_path: Qwen/Qwen3.6-27B
+  max_seq_len: 32768          # the headroom QLoRA buys (~18GB weights vs ~55GB)
+  load_in_4bit: true
+  dtype: bfloat16             # compute dtype; weights are NF4
+  freeze_vision_tower: true
+  trust_remote_code: true
+
+lora:
+  r: 64
+  alpha: 128
+  dropout: 0.0
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  bias: none
+  use_rslora: false
+
+data:
+  train_path: data/train.jsonl
+  eval_path: null
+  eval_fraction: 0.005
+  shuffle_seed: 3407
+  overlong_policy: drop
+
+packing:
+  mode: ffd
+  reset_position_ids: true
+
+mask_check:
+  enabled: true
+  sample_size: 200
+  min_trainable_fraction: 0.02
+  max_trainable_fraction: 0.85
+  max_tokenization_drift: 0.02
+
+optim:
+  learning_rate: 1.0e-4
+  scheduler: cosine
+  min_lr_ratio: 0.1
+  warmup_ratio: 0.03
+  num_epochs: 2.0
+  per_device_batch_size: 1
+  gradient_accumulation: 4    # rows are 2x longer, so half the accumulation
+  weight_decay: 0.01          # keeps ~131K tokens per optimizer step
+  max_grad_norm: 1.0
+  optimizer: adamw_8bit
+  seed: 3407
+  logging_steps: 5
+  gradient_checkpointing: true
+
+checkpointing:
+  output_dir: runs/sft_qlora_fallback
+  save_steps: 100
+  save_total_limit: 3
+  resume: auto
+
+storage:
+  min_free_gb_before_training: 30
+  min_free_gb_per_checkpoint: 10

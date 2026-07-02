@@ -1,0 +1,75 @@
+# Plan A — Stage 1 SFT: bf16 LoRA on Qwen3.6-27B, single RTX PRO 6000 (96GB).
+#
+# Every number here is justified in docs/hyperparameters.md. Short version:
+# ~175M trainable-target tokens, effective batch 8 x 16K = 131K tokens/step,
+# LR 1e-4 cosine->10% floor, 2 epochs.
+
+run_name: sft_plan_a
+stage: sft
+
+model:
+  # Verify the exact repo id on hf.co before the run; not hardcoded elsewhere.
+  name_or_path: Qwen/Qwen3.6-27B
+  max_seq_len: 16384          # covers ~p99 of Plan A trajectories after Phase 3
+  load_in_4bit: false         # bf16 base LoRA — fits in 96GB (see hyperparameters.md)
+  dtype: bfloat16
+  freeze_vision_tower: true   # text-only training on the unified multimodal ckpt
+  trust_remote_code: true
+
+lora:
+  r: 64
+  alpha: 128                  # alpha = 2r, the standard stable scaling
+  dropout: 0.0                # dropout mostly slows LoRA; corpus is large enough
+  target_modules:             # train_sft.py prints per-pattern coverage and
+    - q_proj                  # warns loudly if any pattern matches 0 modules
+    - k_proj                  # (Qwen3.6 hybrid DeltaNet blocks may add names —
+    - v_proj                  #  extend this list from the coverage report)
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  bias: none
+  use_rslora: false
+
+data:
+  train_path: data/train.jsonl        # Phase 3 output
+  eval_path: null
+  eval_fraction: 0.005                # ~1k examples held out for loss tracking
+  shuffle_seed: 3407
+  overlong_policy: drop               # never truncate mid-tool-call
+
+packing:
+  mode: ffd                           # first-fit-decreasing, ~95%+ token utilization
+  reset_position_ids: true
+
+mask_check:
+  enabled: true                       # hard gate; do not disable for real runs
+  sample_size: 200
+  min_trainable_fraction: 0.02
+  max_trainable_fraction: 0.85
+  max_tokenization_drift: 0.02
+
+optim:
+  learning_rate: 1.0e-4
+  scheduler: cosine
+  min_lr_ratio: 0.1                   # decay to 1e-5, not to zero
+  warmup_ratio: 0.03
+  num_epochs: 2.0
+  per_device_batch_size: 1            # one 16K packed row per micro-step
+  gradient_accumulation: 8            # effective 131K tokens per optimizer step
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  optimizer: adamw_8bit               # halves optimizer VRAM at negligible quality cost
+  seed: 3407
+  logging_steps: 5
+  gradient_checkpointing: true
+
+checkpointing:
+  output_dir: runs/sft_plan_a
+  save_steps: 100                     # ~every 45-60 min of training
+  save_total_limit: 3
+  resume: auto                        # integrity-checked auto-resume
+
+storage:
+  min_free_gb_before_training: 30
+  min_free_gb_per_checkpoint: 10
