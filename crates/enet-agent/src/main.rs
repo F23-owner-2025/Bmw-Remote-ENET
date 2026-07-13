@@ -229,8 +229,39 @@ async fn build_ethernet_port(
     }))
 }
 
+fn local_ipv4s() -> Vec<IpAddr> {
+    let mut out = Vec::new();
+    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if sock.connect("8.8.8.8:80").is_ok() {
+            if let Ok(local) = sock.local_addr() {
+                if matches!(local.ip(), IpAddr::V4(v4) if !v4.is_loopback()) {
+                    out.push(local.ip());
+                }
+            }
+        }
+    }
+    // Best-effort: also scrape ipconfig-style names via sysinfo interfaces (MAC only);
+    // primary outbound IP above is the important self-check.
+    out.sort_by_key(|a| a.to_string());
+    out.dedup();
+    out
+}
+
+fn warn_if_peer_is_local(peer: IpAddr) {
+    let locals = local_ipv4s();
+    if locals.iter().any(|ip| *ip == peer) {
+        eprintln!();
+        eprintln!("  *** ERROR: --peer {peer} is THIS LAPTOP's own IP ***");
+        eprintln!("  That can never reach the desktop Host.");
+        eprintln!("  On the DESKTOP open http://127.0.0.1:47901/ and copy the LAN IP shown.");
+        eprintln!("  Then:  .\\enet-agent.exe --config config\\agent.toml --pair-code BMW-XXXX --peer DESKTOP_IP");
+        eprintln!();
+    }
+}
+
 async fn resolve_peer(cfg: &GatewayConfig, args: &Args) -> anyhow::Result<(IpAddr, u16)> {
     if let Some(peer) = args.peer.or(cfg.peer_addr) {
+        warn_if_peer_is_local(peer);
         return Ok((peer, cfg.tunnel_port));
     }
     if matches!(cfg.network_mode, NetworkMode::Wireguard) {
@@ -606,7 +637,9 @@ async fn main() -> anyhow::Result<()> {
                     match TunnelEngine::new(opts, eth).run().await {
                         Ok(h) => {
                             eprintln!(
-                                "Connected to desktop at {peer}. Status: http://127.0.0.1:{status_port}/"
+                                "Dialing desktop at {peer} … waiting for Host reply.\n\
+                            Status: http://127.0.0.1:{status_port}/\n\
+                            (If this stays silent: wrong --peer IP, or Host not running.)"
                             );
                             Some(h)
                         }
