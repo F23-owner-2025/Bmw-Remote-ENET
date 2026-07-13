@@ -11,7 +11,7 @@ pub mod safety;
 pub mod stats;
 pub mod state;
 
-pub use config::{GatewayConfig, LogLevel, Role};
+pub use config::{GatewayConfig, LogLevel, NetworkMode, Role};
 pub use discovery::{InterfaceInfo, detect_candidate_interfaces, looks_like_enet_subnet};
 pub use health::HealthMonitor;
 pub use lan_discovery::{

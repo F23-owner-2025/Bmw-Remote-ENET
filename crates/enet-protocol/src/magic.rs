@@ -26,3 +26,6 @@ pub const DEFAULT_API_PORT: u16 = 47901;
 
 /// UDP port for LAN gateway auto-discovery beacons.
 pub const DEFAULT_DISCOVERY_PORT: u16 = 47902;
+
+/// Default TCP port for the Internet relay (both peers dial out).
+pub const DEFAULT_RELAY_PORT: u16 = 47910;

@@ -1,58 +1,47 @@
 # Quick Start (5 minutes)
 
+## Same Wi‑Fi / Ethernet (easiest)
+
 You do **not** need to configure IP addresses.
 
-## What you need
+1. Desktop: double-click **`Install-Desktop.bat`** → note the **pair code**  
+2. Laptop: double-click **`Install-Laptop.bat`** → paste code (or Enter)  
+3. Plug ENET → ignition ON → open ISTA/E-Sys when the dashboard is green  
 
-- Desktop PC (runs ISTA / E-Sys) on your home Wi‑Fi or Ethernet  
-- Laptop near the car, same network  
-- BMW ENET cable (OBD → RJ45)
+Details: [INSTALL.md](INSTALL.md)
 
-## Desktop (once)
+---
 
-1. Copy the installer folder to the desktop.
-2. Double-click **`Install-Desktop.bat`** (allow Admin).
-3. Browser opens → note the **Pair code** (e.g. `BMW-7K2Q`).
+## Different networks (not the same Wi‑Fi)
 
-Or from a build tree:
+Use a **relay** (both PCs dial out — no home port-forwarding) or **WireGuard**.
+
+Full guide: **[REMOTE.md](REMOTE.md)**
+
+### Relay (recommended remote default)
 
 ```bash
-enet-setup gateway --yes
+# On any VPS / always-on host with a public IP:
+enet-relay --listen 0.0.0.0:47910
+
+# Desktop
+enet-setup gateway --remote-relay YOUR_VPS:47910 --yes
 enet-gateway
-# open http://127.0.0.1:47901/
+
+# Laptop (same pair code from desktop dashboard)
+enet-setup agent --remote-relay YOUR_VPS:47910 --pair-code BMW-XXXX --yes
+enet-agent
 ```
 
-## Laptop (once)
-
-1. Copy the installer folder to the laptop.
-2. Double-click **`Install-Laptop.bat`** (allow Admin).
-3. Paste the pair code when asked (or press Enter to auto-find).
-
-Or:
+### WireGuard (best quality for flashing)
 
 ```bash
-enet-setup agent          # optional pair code prompt
-enet-agent                # finds the desktop automatically
+enet-setup wireguard --desktop-endpoint YOUR_PUBLIC_IP:51820
+# import the two .conf files into WireGuard on each PC, then:
+enet-setup gateway --wireguard --yes
+enet-setup agent --wireguard --yes
 ```
 
-## Every time you use it
+Or install Tailscale on both PCs and set the agent `peer_addr` to the desktop’s Tailscale IP.
 
-1. Desktop gateway running (service auto-starts).  
-2. Laptop agent running.  
-3. Plug ENET into car + laptop, ignition ON.  
-4. Desktop dashboard shows **Laptop connected** + **Vehicle awake**.  
-5. Open ISTA / E-Sys on the desktop.  
-6. Flash ECUs only when Flash safety says OK.
-
-## Troubleshooting (plain language)
-
-| Problem | Fix |
-|---------|-----|
-| Laptop never finds desktop | Same Wi‑Fi? Gateway running? Try pair code. Disable guest Wi‑Fi isolation. |
-| Vehicle never awake | ENET cable seated? Ignition ON? Wait 10–20s after plug-in. |
-| ISTA cannot see car | Dashboard must show Connected first; use adapter `BMW-ENET` / `169.254.1.1`. |
-| Want to start over | Run `uninstall.bat`, then install again. |
-
-## Uninstall
-
-Double-click `uninstall.bat` on each PC.
+**Flash only when the dashboard says SAFE.** Prefer same-LAN or WireGuard for ECU programming.

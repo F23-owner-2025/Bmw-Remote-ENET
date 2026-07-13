@@ -1,17 +1,22 @@
-//! Asynchronous Layer-2 Ethernet-over-UDP tunnel.
+//! Asynchronous Layer-2 Ethernet-over-UDP / relay tunnel.
 //!
 //! The tunnel is transport-only: it does not interpret HSFZ/DoIP/UDS. Raw Ethernet
-//! frames are forwarded bidirectionally between a local [`EthernetPort`] and a UDP peer.
+//! frames are forwarded bidirectionally between a local [`EthernetPort`] and a peer
+//! (LAN UDP or remote TCP relay).
 
 #![deny(missing_docs)]
 
 mod engine;
 mod ethernet;
 mod peer;
+mod relay_client;
+mod relay_engine;
 
 pub use engine::{TunnelEngine, TunnelHandle};
 pub use ethernet::{EthernetPort, LoopbackEthernet, SimulatedEthernet};
 pub use peer::PeerAddr;
+pub use relay_client::RelayRole;
+pub use relay_engine::{RelayTunnelEngine, RelayTunnelOptions};
 
 use enet_core::stats::PacketStats;
 use enet_protocol::SessionCrypto;

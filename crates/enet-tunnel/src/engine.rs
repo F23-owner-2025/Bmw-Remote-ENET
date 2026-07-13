@@ -27,6 +27,21 @@ pub struct TunnelHandle {
 }
 
 impl TunnelHandle {
+    /// Construct a handle for an already-spawned tunnel.
+    pub fn new(
+        stats: SharedStats,
+        state: Arc<RwLock<GatewayState>>,
+        running: Arc<AtomicBool>,
+        stop_tx: broadcast::Sender<()>,
+    ) -> Self {
+        Self {
+            stats,
+            state,
+            running,
+            stop_tx,
+        }
+    }
+
     /// Request graceful stop.
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);

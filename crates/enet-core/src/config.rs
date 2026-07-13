@@ -1,6 +1,8 @@
 //! Configuration loading and defaults.
 
-use enet_protocol::magic::{DEFAULT_API_PORT, DEFAULT_DISCOVERY_PORT, DEFAULT_TUNNEL_PORT};
+use enet_protocol::magic::{
+    DEFAULT_API_PORT, DEFAULT_DISCOVERY_PORT, DEFAULT_RELAY_PORT, DEFAULT_TUNNEL_PORT,
+};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -13,6 +15,35 @@ pub enum Role {
     Agent,
     /// Desktop running diagnostic tools.
     Gateway,
+}
+
+/// How the laptop and desktop reach each other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkMode {
+    /// Same Wi‑Fi / Ethernet (UDP + LAN discovery).
+    #[default]
+    Lan,
+    /// Different networks via outbound TCP relay (easiest remote).
+    Relay,
+    /// Different networks via WireGuard / Tailscale-style VPN overlay.
+    Wireguard,
+}
+
+impl NetworkMode {
+    /// Human label for UI.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Lan => "Same network (LAN)",
+            Self::Relay => "Different networks (Relay)",
+            Self::Wireguard => "Different networks (WireGuard / VPN)",
+        }
+    }
+
+    /// Whether this mode typically traverses the Internet.
+    pub fn is_remote(self) -> bool {
+        !matches!(self, Self::Lan)
+    }
 }
 
 /// Logging verbosity.
@@ -51,9 +82,11 @@ impl LogLevel {
 pub struct GatewayConfig {
     /// Role of this process.
     pub role: Role,
-    /// UDP tunnel listen/connect port.
+    /// How peers reach each other.
+    pub network_mode: NetworkMode,
+    /// UDP tunnel listen/connect port (LAN / WireGuard modes).
     pub tunnel_port: u16,
-    /// Optional bind address (default all interfaces for gateway, or peer for agent).
+    /// Optional bind address.
     pub bind_addr: Option<IpAddr>,
     /// Peer address (optional when auto_discover is enabled on the agent).
     pub peer_addr: Option<IpAddr>,
@@ -107,12 +140,19 @@ pub struct GatewayConfig {
     pub pair_code: String,
     /// True after first-run setup wizard completes.
     pub setup_complete: bool,
+    /// Relay host:port for remote mode (both sides dial out).
+    pub relay_url: String,
+    /// Expected desktop WireGuard IP.
+    pub wireguard_desktop_ip: String,
+    /// Expected laptop WireGuard IP.
+    pub wireguard_laptop_ip: String,
 }
 
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
             role: Role::Gateway,
+            network_mode: NetworkMode::Lan,
             tunnel_port: DEFAULT_TUNNEL_PORT,
             bind_addr: None,
             peer_addr: None,
@@ -120,6 +160,8 @@ impl Default for GatewayConfig {
                 "192.168.0.0/16".into(),
                 "10.0.0.0/8".into(),
                 "172.16.0.0/12".into(),
+                "10.66.0.0/24".into(),
+                "100.64.0.0/10".into(),
             ],
             enet_interface: String::new(),
             lan_interface: String::new(),
@@ -145,11 +187,44 @@ impl Default for GatewayConfig {
             discovery_port: DEFAULT_DISCOVERY_PORT,
             pair_code: String::new(),
             setup_complete: false,
+            relay_url: String::new(),
+            wireguard_desktop_ip: "10.66.0.1".into(),
+            wireguard_laptop_ip: "10.66.0.2".into(),
         }
     }
 }
 
 impl GatewayConfig {
+    /// Apply safer defaults when switching into a remote network mode.
+    pub fn apply_remote_defaults(&mut self) {
+        match self.network_mode {
+            NetworkMode::Lan => {
+                self.safety_rtt_p99_ms = 20.0;
+                self.peer_timeout_ms = 5000;
+            }
+            NetworkMode::Relay => {
+                self.auto_discover = false;
+                self.require_crypto = true;
+                self.safety_rtt_p99_ms = 80.0;
+                self.peer_timeout_ms = 15_000;
+                if self.relay_url.is_empty() {
+                    self.relay_url = format!("127.0.0.1:{DEFAULT_RELAY_PORT}");
+                }
+            }
+            NetworkMode::Wireguard => {
+                self.auto_discover = false;
+                self.require_crypto = true;
+                self.safety_rtt_p99_ms = 40.0;
+                self.peer_timeout_ms = 10_000;
+                if self.role == Role::Agent && self.peer_addr.is_none() {
+                    if let Ok(ip) = self.wireguard_desktop_ip.parse() {
+                        self.peer_addr = Some(ip);
+                    }
+                }
+            }
+        }
+    }
+
     /// Load TOML config from disk, or defaults if missing.
     pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = path.as_ref();
@@ -192,45 +267,79 @@ impl GatewayConfig {
     /// Plain-language setup checklist for UIs.
     pub fn setup_hints(&self) -> Vec<String> {
         let mut hints = Vec::new();
-        match self.role {
-            Role::Gateway => {
-                hints.push("1. Keep this desktop on your home Wi‑Fi or Ethernet.".into());
+        match (self.role, self.network_mode) {
+            (Role::Gateway, NetworkMode::Lan) => {
+                hints.push("Mode: Same network.".into());
                 hints.push(format!(
-                    "2. Open http://127.0.0.1:{}/ in a browser for the dashboard.",
+                    "1. Open http://127.0.0.1:{}/ and note the pair code.",
                     self.api_port
                 ));
-                let code = if self.pair_code.is_empty() {
-                    "(shown in dashboard)".to_string()
-                } else {
-                    self.pair_code.clone()
-                };
                 hints.push(format!(
-                    "3. On the laptop, install the Agent and enter pair code {code} (or leave blank to auto-find)."
+                    "2. On the laptop run the Agent (pair code {}).",
+                    if self.pair_code.is_empty() {
+                        "from dashboard"
+                    } else {
+                        &self.pair_code
+                    }
                 ));
-                hints.push(
-                    "4. Plug the ENET cable into the laptop and the car, then turn ignition ON."
-                        .into(),
-                );
-                hints.push(
-                    "5. Launch ISTA / E-Sys on this desktop when the dashboard says Connected."
-                        .into(),
-                );
+                hints.push("3. Plug ENET into car + laptop, ignition ON.".into());
+                hints.push("4. Open ISTA/E-Sys when the dashboard is green.".into());
             }
-            Role::Agent => {
+            (Role::Gateway, NetworkMode::Relay) => {
+                hints.push("Mode: Different networks via Relay.".into());
+                hints.push(format!(
+                    "1. Run a relay: enet-relay --listen 0.0.0.0:{DEFAULT_RELAY_PORT} (on a VPS)."
+                ));
+                hints.push(format!("2. This PC dials relay: {}", self.relay_url));
+                hints.push(format!(
+                    "3. Laptop uses the same relay + pair code {}.",
+                    if self.pair_code.is_empty() {
+                        "(dashboard)"
+                    } else {
+                        &self.pair_code
+                    }
+                ));
+                hints.push("4. Set a password — Internet paths require encryption.".into());
+                hints.push("5. Prefer WireGuard for ECU flashing if latency is high.".into());
+            }
+            (Role::Gateway, NetworkMode::Wireguard) => {
+                hints.push("Mode: WireGuard / VPN overlay.".into());
                 hints.push(
-                    "1. Connect this laptop to the same Wi‑Fi/Ethernet as the desktop.".into(),
+                    "1. Import config/wireguard-desktop.conf in WireGuard and activate.".into(),
                 );
-                if self.auto_discover {
-                    hints.push(
-                        "2. Auto-discover is ON — the agent will find the desktop automatically."
-                            .into(),
-                    );
-                } else if let Some(ip) = self.peer_addr {
-                    hints.push(format!("2. Connecting to desktop at {ip}."));
-                } else {
-                    hints.push("2. Set peer_addr or enable auto_discover.".into());
-                }
-                hints.push("3. Plug ENET into the car OBD port and this laptop.".into());
+                hints.push(format!(
+                    "2. Desktop WG IP should be {}.",
+                    self.wireguard_desktop_ip
+                ));
+                hints.push("3. Laptop dials that WG IP after its tunnel is up.".into());
+            }
+            (Role::Agent, NetworkMode::Lan) => {
+                hints.push("Mode: Same network — auto-discover desktop.".into());
+                hints.push("1. Same Wi‑Fi/Ethernet as the desktop.".into());
+                hints.push("2. Start enet-agent (optional pair code).".into());
+                hints.push("3. Plug ENET into car + this laptop.".into());
+            }
+            (Role::Agent, NetworkMode::Relay) => {
+                hints.push("Mode: Different networks via Relay.".into());
+                hints.push(format!("1. Relay: {}", self.relay_url));
+                hints.push(format!(
+                    "2. Pair code must match desktop ({})",
+                    if self.pair_code.is_empty() {
+                        "required"
+                    } else {
+                        &self.pair_code
+                    }
+                ));
+                hints.push("3. Plug ENET; leave agent running.".into());
+            }
+            (Role::Agent, NetworkMode::Wireguard) => {
+                hints.push("Mode: WireGuard / VPN.".into());
+                hints.push("1. Import config/wireguard-laptop.conf and activate.".into());
+                hints.push(format!(
+                    "2. Agent connects to desktop at {:?}.",
+                    self.peer_addr
+                ));
+                hints.push("3. Plug ENET; start enet-agent.".into());
             }
         }
         hints
@@ -248,20 +357,22 @@ mod tests {
         let path = dir.path().join("cfg.toml");
         let mut cfg = GatewayConfig::default();
         cfg.password = "secret".into();
-        cfg.peer_addr = Some("192.168.1.50".parse().unwrap());
+        cfg.network_mode = NetworkMode::Relay;
+        cfg.relay_url = "vps:47910".into();
         cfg.save(&path).unwrap();
         let loaded = GatewayConfig::load(&path).unwrap();
         assert_eq!(loaded.password, "secret");
-        assert_eq!(loaded.tunnel_port, DEFAULT_TUNNEL_PORT);
-        assert!(loaded.auto_discover);
+        assert_eq!(loaded.network_mode, NetworkMode::Relay);
+        assert_eq!(loaded.relay_url, "vps:47910");
     }
 
     #[test]
-    fn ensure_pair_code_generates() {
+    fn remote_defaults_require_crypto() {
         let mut cfg = GatewayConfig::default();
-        assert!(cfg.pair_code.is_empty());
-        let code = cfg.ensure_pair_code().to_string();
-        assert!(code.starts_with("BMW-"));
-        assert_eq!(cfg.ensure_pair_code(), code);
+        cfg.network_mode = NetworkMode::Relay;
+        cfg.apply_remote_defaults();
+        assert!(cfg.require_crypto);
+        assert!(!cfg.auto_discover);
+        assert!(cfg.safety_rtt_p99_ms >= 80.0);
     }
 }

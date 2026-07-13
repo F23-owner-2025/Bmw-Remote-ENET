@@ -9,6 +9,7 @@ members = [
     "crates/enet-gui",
     "crates/enet-sim",
     "crates/enet-setup",
+    "crates/enet-relay",
 ]
 default-members = [
     "crates/enet-protocol",
@@ -18,6 +19,7 @@ default-members = [
     "crates/enet-gateway",
     "crates/enet-sim",
     "crates/enet-setup",
+    "crates/enet-relay",
 ]
 
 [workspace.package]

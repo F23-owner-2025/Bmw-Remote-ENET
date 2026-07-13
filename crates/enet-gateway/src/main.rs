@@ -8,13 +8,16 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
 use clap::Parser;
-use enet_core::config::{GatewayConfig, Role};
+use enet_core::config::{GatewayConfig, NetworkMode, Role};
 use enet_core::health::HealthMonitor;
 use enet_core::logging::init_logging;
 use enet_core::run_gateway_beacon;
 use enet_core::safety::{FlashSafetyChecker, SafetyThresholds};
 use enet_core::state::{ConnectionState, GatewayState};
-use enet_tunnel::{EthernetPort, SimulatedEthernet, TunnelEngine, TunnelHandle, TunnelOptions};
+use enet_tunnel::{
+    EthernetPort, RelayTunnelEngine, RelayTunnelOptions, SimulatedEthernet, TunnelEngine,
+    TunnelHandle, TunnelOptions,
+};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -39,6 +42,9 @@ struct Args {
     /// Skip opening hints in logs
     #[arg(long)]
     quiet: bool,
+    /// Force relay URL (enables remote relay mode)
+    #[arg(long)]
+    relay: Option<String>,
 }
 
 struct VirtualNic {
@@ -82,6 +88,10 @@ struct StatusResponse {
     setup_hints: Vec<String>,
     setup_complete: bool,
     friendly_status: String,
+    network_mode: String,
+    network_mode_label: String,
+    is_remote: bool,
+    relay_url: String,
 }
 
 #[derive(Deserialize)]
@@ -103,18 +113,34 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let mut cfg = GatewayConfig::load(&args.config).unwrap_or_default();
     cfg.role = Role::Gateway;
+    if let Some(relay) = &args.relay {
+        cfg.network_mode = NetworkMode::Relay;
+        cfg.relay_url = relay.clone();
+        cfg.apply_remote_defaults();
+    }
     let pair_code = cfg.ensure_pair_code().to_string();
     let _ = cfg.save(&args.config);
     let _guard = init_logging(cfg.log_level, &cfg.log_dir)?;
-    info!(version = env!("CARGO_PKG_VERSION"), %pair_code, "enet-gateway starting");
+    info!(
+        version = env!("CARGO_PKG_VERSION"),
+        %pair_code,
+        mode = ?cfg.network_mode,
+        "enet-gateway starting"
+    );
 
     if !args.quiet {
         eprintln!();
         eprintln!("  BMW ENET Gateway");
+        eprintln!("  Mode: {}", cfg.network_mode.label());
         eprintln!("  ----------------");
         eprintln!("  Pair code:  {pair_code}");
         eprintln!("  Dashboard:  http://127.0.0.1:{}/", cfg.api_port);
-        eprintln!("  On the laptop: install Agent → it will find this PC automatically.");
+        if cfg.network_mode == NetworkMode::Relay {
+            eprintln!("  Relay:      {}", cfg.relay_url);
+            eprintln!("  Laptop must use the same relay + pair code.");
+        } else {
+            eprintln!("  Laptop: install Agent → auto-finds this PC on the LAN.");
+        }
         eprintln!();
         for hint in cfg.setup_hints() {
             eprintln!("  {hint}");
@@ -122,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
         eprintln!();
     }
 
-    if cfg.manage_firewall {
+    if cfg.manage_firewall && cfg.network_mode == NetworkMode::Lan {
         info!(
             "firewall: allow UDP {} (tunnel) and UDP {} (discovery) from LAN",
             cfg.tunnel_port, cfg.discovery_port
@@ -138,12 +164,11 @@ async fn main() -> anyhow::Result<()> {
         inner: tap,
     });
 
-    let bind = SocketAddr::from((
-        cfg.bind_addr.unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
-        cfg.tunnel_port,
-    ));
-    let opts = TunnelOptions {
-        bind,
+    let base_opts = TunnelOptions {
+        bind: SocketAddr::from((
+            cfg.bind_addr.unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
+            cfg.tunnel_port,
+        )),
         peer: cfg.peer_addr.map(|ip| SocketAddr::new(ip, 0)),
         allowed_cidrs: cfg.allowed_cidrs.clone(),
         crypto: None,
@@ -155,21 +180,38 @@ async fn main() -> anyhow::Result<()> {
     }
     .with_password(&cfg.password, cfg.require_crypto);
 
-    let engine = TunnelEngine::new(opts, eth);
-    let handle = engine
-        .run()
-        .await
-        .context("failed to bind gateway tunnel")?;
-    info!(%bind, "gateway tunnel listening");
+    let handle = if cfg.network_mode == NetworkMode::Relay {
+        anyhow::ensure!(
+            !cfg.relay_url.is_empty(),
+            "relay mode needs relay_url (or --relay host:47910)"
+        );
+        let ropts = RelayTunnelOptions {
+            base: base_opts,
+            relay_url: cfg.relay_url.clone(),
+            pair_code: pair_code.clone(),
+        };
+        RelayTunnelEngine::new(ropts, eth)
+            .run()
+            .await
+            .context("failed to join relay")?
+    } else {
+        let bind = base_opts.bind;
+        let handle = TunnelEngine::new(base_opts, eth)
+            .run()
+            .await
+            .context("failed to bind gateway tunnel")?;
+        info!(%bind, "gateway tunnel listening");
+        handle
+    };
 
-    // LAN beacon so the laptop can find us without typing an IP.
-    let beacon = {
+    // LAN beacon only for same-network mode.
+    let beacon = if cfg.network_mode == NetworkMode::Lan {
         let discovery_port = cfg.discovery_port;
         let tunnel_port = cfg.tunnel_port;
         let api_port = cfg.api_port;
         let pair_code = pair_code.clone();
         let password_required = !cfg.password.is_empty() || cfg.require_crypto;
-        tokio::spawn(async move {
+        Some(tokio::spawn(async move {
             if let Err(e) = run_gateway_beacon(
                 discovery_port,
                 tunnel_port,
@@ -182,7 +224,9 @@ async fn main() -> anyhow::Result<()> {
             {
                 warn!(error = %e, "discovery beacon stopped");
             }
-        })
+        }))
+    } else {
+        None
     };
 
     let app_state = AppState {
@@ -215,7 +259,9 @@ async fn main() -> anyhow::Result<()> {
     if let Some(secs) = args.run_seconds {
         tokio::time::sleep(Duration::from_secs(secs)).await;
         handle.stop();
-        beacon.abort();
+        if let Some(b) = beacon {
+            b.abort();
+        }
         server.abort();
         return Ok(());
     }
@@ -223,7 +269,9 @@ async fn main() -> anyhow::Result<()> {
     tokio::signal::ctrl_c().await.ok();
     info!("shutdown");
     handle.stop();
-    beacon.abort();
+    if let Some(b) = beacon {
+        b.abort();
+    }
     server.abort();
     Ok(())
 }
@@ -237,6 +285,12 @@ async fn dashboard_html(State(state): State<AppState>) -> Html<String> {
     let safe = status.flash_safety.safe;
     let pair = html_escape(&status.pair_code);
     let msg = html_escape(&status.friendly_status);
+    let mode = html_escape(&status.network_mode_label);
+    let relay = if status.relay_url.is_empty() {
+        String::new()
+    } else {
+        format!(" · relay {}", html_escape(&status.relay_url))
+    };
     let hints: String = status
         .setup_hints
         .iter()
@@ -291,6 +345,7 @@ async fn dashboard_html(State(state): State<AppState>) -> Html<String> {
   <div class="sub">F-Series remote diagnostics · {msg}</div>
 
   <div class="pair">Pair code: {pair}</div>
+  <p class="sub">Network mode: {mode}{relay}</p>
 
   <div class="grid">
     <div class="pill"><span class="dot {gw_cls}"></span>Gateway running</div>
@@ -311,8 +366,7 @@ async fn dashboard_html(State(state): State<AppState>) -> Html<String> {
   </div>
 
   <p class="sub" style="margin-top:1.5rem">
-    Laptop tip: run <code>enet-setup agent</code> or the Agent installer — no desktop IP needed.
-    Dashboard auto-refreshes every 3 seconds.
+    Different networks? Use a relay or WireGuard — see docs/REMOTE.md.
   </p>
   <div class="actions">
     <button onclick="fetch('/api/complete-setup',{{method:'POST'}})">Mark setup complete</button>
@@ -404,6 +458,16 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
     );
 
     let friendly = friendly_status(&gateway_state);
+    let mut flash_safety = flash_safety;
+    if cfg.network_mode.is_remote() && flash_safety.safe {
+        flash_safety.warning.push_str(
+            " Remote link: prefer WireGuard or same-LAN for ECU flashing whenever possible.",
+        );
+    } else if cfg.network_mode.is_remote() {
+        flash_safety.warning.push_str(
+            " You are on a remote path (relay/VPN). Expect higher latency than LAN.",
+        );
+    }
     Json(StatusResponse {
         state: gateway_state,
         stats,
@@ -415,6 +479,10 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
         setup_hints: cfg.setup_hints(),
         setup_complete: cfg.setup_complete,
         friendly_status: friendly,
+        network_mode: format!("{:?}", cfg.network_mode).to_lowercase(),
+        network_mode_label: cfg.network_mode.label().into(),
+        is_remote: cfg.network_mode.is_remote(),
+        relay_url: cfg.relay_url.clone(),
     })
 }
 
