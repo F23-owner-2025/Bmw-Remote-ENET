@@ -220,18 +220,56 @@ impl TunnelEngine {
                                     let mut st = state.write();
                                     st.peer_endpoint = Some(src.to_string());
                                 } else if let Some(existing) = *slot {
-                                    if existing.ip() != src.ip() && opts.peer.is_some() {
-                                        warn!(%src, expected = %existing, "unexpected peer ip");
-                                        stats.record_drop();
-                                        continue;
+                                    if existing.ip() != src.ip() {
+                                        let tunnel_port = opts
+                                            .peer
+                                            .map(|p| p.port())
+                                            .unwrap_or(existing.port());
+                                        // Laptop --peer can be a different NIC than the one the
+                                        // desktop replies from (multi-homed Host). Learn it.
+                                        // Ignore other Clients (ephemeral ports ≠ tunnel port).
+                                        if opts.role == "agent"
+                                            && opts.peer.is_some()
+                                            && src.port() == tunnel_port
+                                        {
+                                            let learned = SocketAddr::new(src.ip(), tunnel_port);
+                                            info!(
+                                                %learned,
+                                                from = %src,
+                                                was = %existing,
+                                                "desktop reply IP differs from --peer; switching"
+                                            );
+                                            *slot = Some(learned);
+                                            let _ = peer_watch_tx.send(Some(learned));
+                                            stats.reset_rx_sequence();
+                                            let mut st = state.write();
+                                            st.peer_endpoint = Some(learned.to_string());
+                                        } else if opts.peer.is_some() {
+                                            debug!(
+                                                %src,
+                                                expected = %existing,
+                                                "ignoring packet from non-peer IP"
+                                            );
+                                            stats.record_drop();
+                                            continue;
+                                        } else if opts.role == "gateway" {
+                                            // Another laptop appeared — take the new peer.
+                                            info!(%src, previous = %existing, "peer IP changed");
+                                            *slot = Some(src);
+                                            let _ = peer_watch_tx.send(Some(src));
+                                            stats.reset_rx_sequence();
+                                            let mut st = state.write();
+                                            st.peer_endpoint = Some(src.to_string());
+                                        }
+                                    } else {
+                                        if existing != src {
+                                            // NAT port change or second Client — resync loss tracking.
+                                            stats.reset_rx_sequence();
+                                        }
+                                        *slot = Some(src);
+                                        let mut st = state.write();
+                                        st.peer_endpoint = Some(src.to_string());
                                     }
-                                    if existing != src {
-                                        // NAT port change or second Client — resync loss tracking.
-                                        stats.reset_rx_sequence();
-                                    }
-                                    *slot = Some(src);
-                                    let mut st = state.write();
-                                    st.peer_endpoint = Some(src.to_string());
                                 }
                             }
                             *last_peer_rx.write() = Instant::now();
