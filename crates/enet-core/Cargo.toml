@@ -22,6 +22,7 @@ sysinfo = { workspace = true }
 hostname = { workspace = true }
 uuid = { workspace = true }
 async-trait = { workspace = true }
+if-addrs = "0.13"
 
 [dev-dependencies]
 tempfile = { workspace = true }

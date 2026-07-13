@@ -41,13 +41,13 @@ Double-click the **BMW ENET Gateway** desktop shortcut, or run `enet-gui`.
 
 ### Desktop on Ethernet, laptop on Wi‑Fi
 
-Same home router is fine, but **auto-discovery often fails** across Wi‑Fi ↔ wired.
+Same home router is fine. **v0.1.17+ auto-detects the desktop IP** by pair code (DHCP / changing IPs are OK).
 
-1. On the desktop, open **http://127.0.0.1:47901/** and note a **LAN IP** (try each if several are listed).
-2. On the laptop, open **http://127.0.0.1:47903/**, enter that IP, click **Connect**.
-3. It is saved for next boot — you do not need PowerShell.
+1. Start Host on the desktop and Client on the laptop.
+2. Match the **pair code** (and password, if any).
+3. Client finds the Host automatically. If Desktop stays Waiting, open **http://127.0.0.1:47903/** → **Auto-find desktop**.
 
-Also match passwords on both PCs (or clear `password` on both). Guest / AP-isolation Wi‑Fi will not work.
+Guest / AP-isolation Wi‑Fi will not work. As a fallback only, enter a Desktop LAN IP on the status page.
 
 ### Lower latency (Wi‑Fi laptop)
 

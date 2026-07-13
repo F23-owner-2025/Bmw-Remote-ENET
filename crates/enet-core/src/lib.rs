@@ -18,7 +18,8 @@ pub use discovery::{
 };
 pub use health::HealthMonitor;
 pub use lan_discovery::{
-    DiscoveredGateway, DiscoveryMessage, discover_gateways, generate_pair_code, run_gateway_beacon,
+    DiscoveredGateway, DiscoveryMessage, discover_gateways, generate_pair_code, list_lan_ipv4s,
+    pick_reachable_host_ip, run_gateway_beacon,
 };
 pub use logging::init_logging;
 pub use safety::{FlashSafetyChecker, FlashSafetyReport, SafetyThresholds};

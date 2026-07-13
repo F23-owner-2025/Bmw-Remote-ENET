@@ -13,8 +13,8 @@ Car ──ENET──► Laptop (Client) ══ Wi‑Fi / VPN ══► Desktop (
 You need **one file**. No Rust. No `.bat` scripts.
 
 1. Log into GitHub → open **[Releases](https://github.com/Ryan-duntley19/test/releases)**  
-   *(this repo is private — you must be signed in)*
-2. Download **`BMW-ENET-Setup.exe`** (use **v0.1.1 or newer**)
+   *(while private: you must be signed in; when public: anyone can download)*
+2. Download **`BMW-ENET-Setup.exe`** (use **v0.1.17 or newer**)
 3. Double-click it → allow Administrator
 4. Choose a role and click **Install**:
 
@@ -23,12 +23,14 @@ You need **one file**. No Rust. No `.bat` scripts.
 | Desktop with ISTA / E-Sys | **Host (Desktop)** |
 | Laptop with the ENET cable | **Client (Laptop)** |
 
-5. **Host:** browser opens to http://127.0.0.1:47901/ — copy the **pair code**  
-   **Client:** paste that pair code (or leave blank if both PCs are on the same Wi‑Fi)
+5. **Host:** browser opens to http://127.0.0.1:47901/ — note the **pair code**  
+   **Client:** paste that pair code (recommended). Desktop IP is **auto-detected** (DHCP / changing IPs OK).
 
 Files install under `C:\BMW-ENET\Host` or `C:\BMW-ENET\Client`.
 
 Do the same Setup.exe on both PCs (Host on one, Client on the other).
+
+Same home router required (not Guest / AP-isolation Wi‑Fi). If Desktop stays Waiting, open http://127.0.0.1:47903/ → **Auto-find desktop**.
 
 ### If Setup says `VCRUNTIME140.dll` was not found
 

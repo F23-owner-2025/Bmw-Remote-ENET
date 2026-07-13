@@ -172,14 +172,17 @@
   <div class="metrics" id="metrics"></div>
 
   <div class="connect" id="connect-box">
-    <h2>Connect to desktop</h2>
+    <h2>Desktop connection</h2>
     <p>
-      On the desktop open <code>http://127.0.0.1:47901/</code> and copy the LAN IP
-      (use the one that works on your network — often not the first listed).
-      Enter it once here. It is saved for next boot — no PowerShell needed.
+      The Client <strong>auto-detects</strong> the desktop by pair code — no static IP needed.
+      If Desktop stays Waiting, click <strong>Auto-find</strong>, or enter a LAN IP from
+      <code>http://127.0.0.1:47901/</code> as a one-time hint.
     </p>
+    <div class="actions" style="margin-bottom:0.85rem">
+      <button id="btn-discover" type="button">Auto-find desktop</button>
+    </div>
     <div class="field">
-      <label for="peer">Desktop IP</label>
+      <label for="peer">Desktop IP (optional hint)</label>
       <input id="peer" type="text" inputmode="decimal" placeholder="192.168.1.187" autocomplete="off"/>
     </div>
     <div class="field">
@@ -187,7 +190,7 @@
       <input id="pair" type="text" placeholder="BMW-XXXX" autocomplete="off"/>
     </div>
     <div class="actions">
-      <button id="btn-connect" type="button">Connect</button>
+      <button id="btn-connect" type="button">Connect with IP hint</button>
       <span id="saved-peer" class="detail"></span>
     </div>
     <div class="msg" id="connect-msg"></div>
@@ -218,7 +221,7 @@ async function refresh() {
       ? (s.desktop_peer || 'Tunnel up')
       : (s.configured_peer
           ? ('Dialing ' + s.configured_peer + '…')
-          : 'Enter desktop IP below');
+          : 'Auto-finding Host on your LAN…');
 
     const enet = !!s.enet_link;
     setBadge(document.getElementById('enet-b'), enet ? 'PLUGGED' : 'UNPLUGGED', enet ? 'ok' : 'off');
@@ -262,12 +265,12 @@ async function connect() {
   const peer = document.getElementById('peer').value.trim();
   const pair_code = document.getElementById('pair').value.trim();
   if (!peer) {
-    msg.textContent = 'Enter the desktop LAN IP from http://127.0.0.1:47901/';
+    msg.textContent = 'Enter a desktop LAN IP, or click Auto-find desktop.';
     msg.className = 'msg err';
     return;
   }
   btn.disabled = true;
-  msg.textContent = 'Saving and connecting…';
+  msg.textContent = 'Saving hint and connecting…';
   msg.className = 'msg';
   try {
     const r = await fetch('/api/connect', {
@@ -283,7 +286,34 @@ async function connect() {
       msg.textContent = j.message || 'Saved — dialing desktop…';
       msg.className = 'msg ok';
       lastConfigured = peer;
-      document.getElementById('saved-peer').textContent = 'Saved: ' + peer;
+      document.getElementById('saved-peer').textContent = 'Hint: ' + peer;
+    }
+  } catch (e) {
+    msg.textContent = 'Could not reach agent: ' + e;
+    msg.className = 'msg err';
+  } finally {
+    btn.disabled = false;
+    refresh();
+  }
+}
+
+async function autoFind() {
+  const btn = document.getElementById('btn-discover');
+  const msg = document.getElementById('connect-msg');
+  btn.disabled = true;
+  msg.textContent = 'Auto-finding desktop…';
+  msg.className = 'msg';
+  try {
+    const r = await fetch('/api/discover', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+      msg.textContent = j.message || 'Auto-find failed';
+      msg.className = 'msg err';
+    } else {
+      msg.textContent = j.message || 'Searching LAN…';
+      msg.className = 'msg ok';
+      lastConfigured = '';
+      document.getElementById('saved-peer').textContent = '';
     }
   } catch (e) {
     msg.textContent = 'Could not reach agent: ' + e;
@@ -295,6 +325,7 @@ async function connect() {
 }
 
 document.getElementById('btn-connect').addEventListener('click', connect);
+document.getElementById('btn-discover').addEventListener('click', autoFind);
 document.getElementById('peer').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') connect();
 });

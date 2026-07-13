@@ -509,18 +509,20 @@ impl TunnelEngine {
                         warn!("peer timeout");
                         stats.record_reconnect();
                         let mut st = state.write();
-                        st.connection = ConnectionState::Reconnecting;
                         st.laptop_connected = false;
-                        st.status_message = "Peer timeout — reconnecting".into();
                         st.peer_endpoint = None;
                         if opts.role == "gateway" {
+                            st.connection = ConnectionState::Reconnecting;
+                            st.status_message = "Peer timeout — reconnecting".into();
                             st.vehicle.link_up = false;
                             st.vehicle.awake = false;
+                        } else {
+                            // Agent: Host DHCP may have changed — fail out so outer loop re-discovers.
+                            st.connection = ConnectionState::Failed;
+                            st.status_message = "Peer timeout — re-detecting desktop IP".into();
                         }
                         drop(st);
-                        if opts.peer.is_none() {
-                            *peer_slot.write() = None;
-                        }
+                        *peer_slot.write() = None;
                     }
                 }
             })

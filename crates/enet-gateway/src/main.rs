@@ -184,8 +184,8 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("  Relay:      {}", cfg.relay_url);
             eprintln!("  Laptop must use the same relay + pair code.");
         } else {
-            eprintln!("  Laptop: open http://127.0.0.1:47903/ → Desktop IP → Connect");
-            eprintln!("    (pair code {pair_code}; use a LAN IP from this dashboard)");
+            eprintln!("  Laptop: auto-detects this PC by pair code (DHCP OK)");
+            eprintln!("    Pair {pair_code} · fallback status http://127.0.0.1:47903/");
         }
         eprintln!();
         for hint in cfg.setup_hints() {
@@ -503,25 +503,26 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
         .cloned()
         .unwrap_or_else(|| "DESKTOP_IP".into());
     let connect_command = format!(
-        "On laptop http://127.0.0.1:47903/ → Desktop IP {} → Connect (pair {})",
-        primary_ip, cfg.pair_code
+        "Laptop auto-finds this PC (pair {}). Status: http://127.0.0.1:47903/ → Auto-find. Hint IP: {}",
+        cfg.pair_code, primary_ip
     );
     let mut setup_hints = cfg.setup_hints();
     if !cfg.network_mode.is_remote()
         && !gateway_state.laptop_connected
         && !matches!(gateway_state.connection, ConnectionState::Connected)
     {
-        setup_hints.push(format!(
-            "Wi‑Fi laptop + wired desktop? On the laptop open http://127.0.0.1:47903/, enter Desktop IP {primary_ip}, click Connect."
-        ));
+        setup_hints.push(
+            "Laptop Client auto-detects this PC by pair code (DHCP / changing IPs OK)."
+                .into(),
+        );
         if lan_ips.len() > 1 {
             setup_hints.push(format!(
-                "This PC has multiple LAN IPs — try each if needed: {}",
+                "This PC LAN IPs (fallback hint only): {}",
                 lan_ips.join(", ")
             ));
         }
         setup_hints.push(
-            "Also match passwords on both PCs (or clear password on both), and use the exact pair code above."
+            "If Client stays Waiting: open http://127.0.0.1:47903/ → Auto-find desktop. Same router required (not Guest Wi‑Fi)."
                 .into(),
         );
     }
@@ -559,25 +560,12 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
     })
 }
 
-/// Best-effort local IPv4 list for “connect with --peer” hints.
+/// Best-effort local IPv4 list for dashboard hints (all LAN NICs).
 fn local_lan_ipv4s() -> Vec<String> {
-    let mut ips = Vec::new();
-    // Primary outbound address.
-    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
-        if sock.connect("8.8.8.8:80").is_ok() {
-            if let Ok(local) = sock.local_addr() {
-                if let IpAddr::V4(v4) = local.ip() {
-                    if !v4.is_loopback() {
-                        ips.push(v4.to_string());
-                    }
-                }
-            }
-        }
-    }
-    // Extra NICs from sysinfo names aren't enough for IPs; keep primary for now.
-    ips.sort();
-    ips.dedup();
-    ips
+    enet_core::list_lan_ipv4s()
+        .into_iter()
+        .map(|ip| ip.to_string())
+        .collect()
 }
 
 async fn api_start(State(state): State<AppState>) -> Json<serde_json::Value> {

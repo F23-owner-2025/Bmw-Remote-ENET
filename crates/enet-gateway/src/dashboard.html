@@ -287,7 +287,7 @@
 
       <div class="peer-box" id="peer-box" style="display:none">
         <div class="title">Laptop on Wi‑Fi, desktop on Ethernet?</div>
-        <p class="muted">Auto-discover often fails across Wi‑Fi ↔ wired. On the laptop open <code>http://127.0.0.1:47903/</code>, enter one of the LAN IPs below, and click <strong>Connect</strong> (saved for next boot — no PowerShell).</p>
+        <p class="muted">Client auto-detects this PC by pair code (works with DHCP / changing IPs). If the laptop stays Waiting, open <code>http://127.0.0.1:47903/</code> → <strong>Auto-find desktop</strong>. Same router required (not Guest Wi‑Fi).</p>
         <code id="peer-cmd">—</code>
         <div class="ips" id="peer-ips"></div>
         <div class="actions" style="margin-top:0.65rem">
@@ -407,8 +407,8 @@ function renderStatus(s) {
   document.getElementById('lap-detail').textContent = lap
     ? ((s.network_mode_label || 'LAN') + (peer ? (' · ' + peer) : ''))
     : (lanIps.length
-      ? ('Waiting · laptop: open :47903 → enter ' + lanIps[0] + ' → Connect')
-      : 'Open Client status on the laptop and Connect with this pair code');
+      ? ('Waiting · Client auto-finds this PC · hint ' + lanIps[0])
+      : 'Waiting for laptop Client (auto-detect by pair code)');
 
   const peerBox = document.getElementById('peer-box');
   if (!lap && s.connect_command) {

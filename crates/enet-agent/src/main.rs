@@ -120,6 +120,8 @@ struct LiveStatus {
     pair_code: RwLock<String>,
     desktop_peer: RwLock<String>,
     configured_peer: RwLock<Option<IpAddr>>,
+    /// When true, next resolve_peer skips the cached IP and re-runs LAN discovery.
+    force_discover: AtomicBool,
     enet_name: Arc<RwLock<String>>,
     enet_link: Arc<AtomicBool>,
     force_reconnect: AtomicBool,
@@ -331,58 +333,98 @@ Set-ScheduledTask -TaskName $taskName -Action $action | Out-Null
     }
 }
 
-async fn resolve_peer(cfg: &GatewayConfig, args: &Args) -> anyhow::Result<(IpAddr, u16)> {
-    // Prefer config (updated by status-page Connect) over CLI so UI can change peers.
-    if let Some(peer) = cfg.peer_addr.or(args.peer) {
-        warn_if_peer_is_local(peer);
-        return Ok((peer, cfg.tunnel_port));
-    }
-    if matches!(cfg.network_mode, NetworkMode::Wireguard) {
+async fn resolve_peer(
+    cfg: &GatewayConfig,
+    args: &Args,
+    force_discover: bool,
+) -> anyhow::Result<(IpAddr, u16)> {
+    let cached = if force_discover {
+        None
+    } else {
+        cfg.peer_addr.or(args.peer)
+    };
+
+    if matches!(cfg.network_mode, NetworkMode::Wireguard) && cached.is_none() {
         let ip: IpAddr = cfg
             .wireguard_desktop_ip
             .parse()
             .context("wireguard_desktop_ip invalid")?;
         return Ok((ip, cfg.tunnel_port));
     }
+
+    // Always try LAN discovery when enabled (DHCP IPs change — never rely only on a sticky peer).
+    let should_discover = cfg.auto_discover || force_discover || cached.is_none();
+    if should_discover && !matches!(cfg.network_mode, NetworkMode::Wireguard) {
+        let code = args
+            .pair_code
+            .clone()
+            .unwrap_or_else(|| cfg.pair_code.clone());
+        eprintln!(
+            "Looking for BMW ENET Gateway on your LAN{}…",
+            if force_discover {
+                " (re-detecting IP)"
+            } else {
+                ""
+            }
+        );
+        if !code.is_empty() {
+            eprintln!("  (filtering for pair code {code})");
+        }
+        match discover_gateways(cfg.discovery_port, &code, Duration::from_secs(5)).await {
+            Ok(found) if !found.is_empty() => {
+                // Prefer a discovery result that matches the cached hint when still valid.
+                let gw = found
+                    .iter()
+                    .find(|g| cached.map(|c| c == g.addr).unwrap_or(false))
+                    .or_else(|| found.first())
+                    .cloned()
+                    .unwrap();
+                if gw.password_required && cfg.password.is_empty() {
+                    eprintln!(
+                        "WARNING: desktop requires a password, but this agent has an empty password."
+                    );
+                }
+                if !gw.password_required && !cfg.password.is_empty() {
+                    eprintln!(
+                        "WARNING: this agent has a password set, but the desktop does not — clear password on the laptop or set the same password on the Host."
+                    );
+                }
+                eprintln!(
+                    "Found desktop “{}” at {} (tunnel {})",
+                    gw.hostname, gw.addr, gw.tunnel_port
+                );
+                warn_if_peer_is_local(gw.addr);
+                return Ok((gw.addr, gw.tunnel_port));
+            }
+            Ok(_) => {
+                eprintln!("  No Host beacon heard yet — will fall back to saved IP if any.");
+            }
+            Err(e) => {
+                eprintln!("  Discovery error: {e}");
+            }
+        }
+    }
+
+    if let Some(peer) = cached.or(cfg.peer_addr).or(args.peer) {
+        warn_if_peer_is_local(peer);
+        eprintln!("Using saved desktop IP {peer} (will auto-redetect if it stops responding)");
+        return Ok((peer, cfg.tunnel_port));
+    }
+
     if !cfg.auto_discover {
         anyhow::bail!(
-            "No desktop address configured.\n\
-             For different networks use: enet-setup agent --remote-relay HOST:47910\n\
-             Or WireGuard: enet-setup wireguard"
+            "No desktop address configured and auto-discover is off.\n\
+             Open http://127.0.0.1:47903/ and click Auto-find, or enter a Desktop IP."
         );
     }
-    let code = args
-        .pair_code
-        .clone()
-        .unwrap_or_else(|| cfg.pair_code.clone());
-    eprintln!("Looking for BMW ENET Gateway on your LAN…");
-    if !code.is_empty() {
-        eprintln!("  (filtering for pair code {code})");
-    }
-    let found = discover_gateways(cfg.discovery_port, &code, Duration::from_secs(5)).await?;
-    let gw = found.into_iter().next().context(
-        "No desktop on this LAN.\n\
-         If the desktop is on Ethernet and this laptop is on Wi‑Fi, broadcast discovery usually fails.\n\
-         Fix (no PowerShell):\n\
-           1) On the desktop, open http://127.0.0.1:47901/ and copy a LAN IP.\n\
-           2) On this laptop, open http://127.0.0.1:47903/, enter that IP, click Connect.\n\
-         Also check: same router (not Guest / client-isolation), Windows Firewall allows UDP 47900/47902.",
-    )?;
-    if gw.password_required && cfg.password.is_empty() {
-        eprintln!(
-            "WARNING: desktop requires a password, but this agent has an empty password."
-        );
-    }
-    if !gw.password_required && !cfg.password.is_empty() {
-        eprintln!(
-            "WARNING: this agent has a password set, but the desktop does not — clear password on the laptop or set the same password on the Host."
-        );
-    }
-    eprintln!(
-        "Found desktop “{}” at {} (tunnel {})",
-        gw.hostname, gw.addr, gw.tunnel_port
-    );
-    Ok((gw.addr, gw.tunnel_port))
+
+    anyhow::bail!(
+        "No desktop on this LAN yet.\n\
+         Make sure the Host is running on the desktop (http://127.0.0.1:47901/).\n\
+         Same home router required (not Guest / client-isolation Wi‑Fi).\n\
+         Windows Firewall must allow UDP 47900 and 47902.\n\
+         Fallback: open http://127.0.0.1:47903/, enter a Desktop LAN IP, click Connect."
+    )
 }
 
 fn friendly_line(desktop: bool, enet: bool, awake: bool) -> String {
@@ -433,13 +475,13 @@ async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
     let friendly = match conn_label {
         "searching" => {
             if live.configured_peer.read().is_some() {
-                "Dialing saved desktop IP…".into()
+                "Auto-finding / dialing desktop…".into()
             } else {
-                "Enter desktop IP below and click Connect".into()
+                "Auto-finding desktop on your LAN…".into()
             }
         }
         "waiting" => "Waiting for desktop reply…".into(),
-        "reconnecting" => "Reconnecting to desktop…".into(),
+        "reconnecting" => "Reconnecting — will re-detect IP if needed…".into(),
         _ => friendly_line(desktop_connected, enet, awake),
     };
     Json(StatusJson {
@@ -497,7 +539,8 @@ async fn api_connect(
     });
     cfg.role = Role::Agent;
     cfg.peer_addr = Some(peer);
-    cfg.auto_discover = false;
+    // Keep auto-discover ON so DHCP / IP changes still re-learn the Host.
+    cfg.auto_discover = true;
     if let Some(code) = req.pair_code.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
         cfg.pair_code = code.to_string();
         *live.pair_code.write() = code.to_string();
@@ -516,6 +559,7 @@ async fn api_connect(
 
     *live.configured_peer.write() = Some(peer);
     *live.desktop_peer.write() = format!("{}:{}", peer, live.tunnel_port);
+    live.force_discover.store(false, Ordering::SeqCst);
     refresh_client_autostart(&live.config_path, peer, &cfg.pair_code);
 
     if let Some(h) = live.handle.write().take() {
@@ -523,13 +567,43 @@ async fn api_connect(
     }
     live.force_reconnect.store(true, Ordering::SeqCst);
 
-    info!(%peer, "desktop peer set from status page");
+    info!(%peer, "desktop peer hint set from status page");
     (
         StatusCode::OK,
         Json(ConnectResponse {
             ok: true,
-            message: format!("Saved {peer} — dialing desktop (also saved for next boot)"),
+            message: format!(
+                "Saved {peer} as hint — dialing now. Auto-detect stays on if the IP changes later."
+            ),
             peer: Some(peer.to_string()),
+        }),
+    )
+}
+
+async fn api_discover(
+    State(live): State<Arc<LiveStatus>>,
+) -> (StatusCode, Json<ConnectResponse>) {
+    // Clear sticky peer so resolve_peer must hear a fresh Host beacon.
+    *live.configured_peer.write() = None;
+    live.force_discover.store(true, Ordering::SeqCst);
+
+    if let Ok(mut cfg) = GatewayConfig::load(&live.config_path) {
+        cfg.peer_addr = None;
+        cfg.auto_discover = true;
+        let _ = cfg.save(&live.config_path);
+    }
+
+    if let Some(h) = live.handle.write().take() {
+        h.stop();
+    }
+    live.force_reconnect.store(true, Ordering::SeqCst);
+
+    (
+        StatusCode::OK,
+        Json(ConnectResponse {
+            ok: true,
+            message: "Auto-finding desktop on your LAN…".into(),
+            peer: None,
         }),
     )
 }
@@ -544,6 +618,7 @@ fn spawn_status_server(live: Arc<LiveStatus>, port: u16) {
             .route("/", get(status_page))
             .route("/api/status", get(api_status))
             .route("/api/connect", post(api_connect))
+            .route("/api/discover", post(api_discover))
             .with_state(live);
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         match tokio::net::TcpListener::bind(addr).await {
@@ -610,6 +685,7 @@ async fn run_until_stop(handle: TunnelHandle, live: Arc<LiveStatus>) {
                     last_line = line;
                 }
                 if matches!(st.connection, ConnectionState::Failed) {
+                    live.force_discover.store(true, Ordering::SeqCst);
                     break;
                 }
             }
@@ -689,6 +765,7 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_default(),
         ),
         configured_peer: RwLock::new(cfg.peer_addr),
+        force_discover: AtomicBool::new(false),
         enet_name: enet_name.clone(),
         enet_link: enet_link.clone(),
         force_reconnect: AtomicBool::new(false),
@@ -708,9 +785,7 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("  BMW ENET Agent (laptop)");
     eprintln!("  Mode: {}", cfg.network_mode.label());
     eprintln!("  Status: http://127.0.0.1:{status_port}/");
-    if cfg.peer_addr.is_none() {
-        eprintln!("  Tip: open the status page → enter Desktop IP → Connect");
-    }
+    eprintln!("  Auto-detect: ON (works with changing / DHCP desktop IPs)");
     eprintln!("  -----------------------");
     for hint in cfg.setup_hints() {
         eprintln!("  {hint}");
@@ -718,11 +793,17 @@ async fn main() -> anyhow::Result<()> {
     eprintln!();
 
     let mut attempt = 0u32;
+    // Always keep discovery enabled for LAN so DHCP changes are recovered.
+    if cfg.network_mode == NetworkMode::Lan {
+        cfg.auto_discover = true;
+    }
     loop {
-        // Status-page Connect updates configured_peer + agent.toml.
+        // Status-page Connect updates configured_peer + agent.toml (hint only).
         if let Some(p) = *live.configured_peer.read() {
             cfg.peer_addr = Some(p);
-            cfg.auto_discover = false;
+        }
+        if cfg.network_mode == NetworkMode::Lan {
+            cfg.auto_discover = true;
         }
         {
             let code = live.pair_code.read().clone();
@@ -730,6 +811,7 @@ async fn main() -> anyhow::Result<()> {
                 cfg.pair_code = code;
             }
         }
+        let force_discover = live.force_discover.swap(false, Ordering::SeqCst);
         live.force_reconnect.store(false, Ordering::SeqCst);
         *live.pair_code.write() = cfg.pair_code.clone();
         let eth = match build_ethernet_port(&cfg, args.simulate, enet_name.clone(), enet_link.clone())
@@ -791,11 +873,17 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         } else {
-            match resolve_peer(&cfg, &args).await {
+            match resolve_peer(&cfg, &args, force_discover).await {
                 Ok((peer_ip, tunnel_port)) => {
                     let peer = SocketAddr::new(peer_ip, tunnel_port);
                     *live.desktop_peer.write() = peer.to_string();
                     *live.configured_peer.write() = Some(peer_ip);
+                    // Persist last-known good IP as a fast hint (discovery still runs).
+                    if cfg.peer_addr != Some(peer_ip) {
+                        cfg.peer_addr = Some(peer_ip);
+                        cfg.auto_discover = true;
+                        let _ = cfg.save(&args.config);
+                    }
                     let opts = TunnelOptions {
                         bind: SocketAddr::from((
                             cfg.bind_addr.unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
@@ -816,18 +904,20 @@ async fn main() -> anyhow::Result<()> {
                             eprintln!(
                                 "Dialing desktop at {peer} … waiting for Host reply.\n\
                             Status: http://127.0.0.1:{status_port}/\n\
-                            (If this stays silent: wrong Desktop IP on the status page, or Host not running.)"
+                            (IP is auto-detected; if your router reassigns it, Client re-learns automatically.)"
                             );
                             Some(h)
                         }
                         Err(e) => {
                             eprintln!("Tunnel failed: {e}");
+                            live.force_discover.store(true, Ordering::SeqCst);
                             None
                         }
                     }
                 }
                 Err(e) => {
                     eprintln!("\n{e}\n");
+                    live.force_discover.store(true, Ordering::SeqCst);
                     None
                 }
             }
@@ -837,9 +927,11 @@ async fn main() -> anyhow::Result<()> {
             attempt = 0;
             run_until_stop(handle, live.clone()).await;
             if live.force_reconnect.load(Ordering::SeqCst) {
-                eprintln!("Applying new desktop IP from status page…");
+                eprintln!("Applying status-page change…");
                 continue;
             }
+            // After a drop, re-detect in case DHCP moved the Host.
+            live.force_discover.store(true, Ordering::SeqCst);
         }
 
         attempt = attempt.saturating_add(1);

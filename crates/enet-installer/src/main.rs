@@ -268,12 +268,12 @@ impl eframe::App for SetupApp {
                     ui.add_space(8.0);
 
                     if self.role == Role::Client {
-                        ui.label("Desktop LAN IP from the Host dashboard (recommended):");
+                        ui.label("Desktop LAN IP (optional — usually auto-detected):");
                         ui.text_edit_singleline(&mut self.peer);
-                        ui.small("Open http://127.0.0.1:47901/ on the desktop and copy a LAN IP.");
-                        ui.small("If you skip this, you can enter it later on the laptop status page.");
+                        ui.small("Leave blank: Client finds the Host by pair code even when DHCP changes.");
+                        ui.small("Only fill this if Auto-find fails (Wi‑Fi guest / AP isolation).");
                         ui.add_space(6.0);
-                        ui.label("Pair code from the Host dashboard (optional):");
+                        ui.label("Pair code from the Host dashboard (recommended):");
                         ui.text_edit_singleline(&mut self.pair_code);
                         ui.add_space(6.0);
                     }
