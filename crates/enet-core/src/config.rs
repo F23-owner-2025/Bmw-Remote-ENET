@@ -162,6 +162,7 @@ impl Default for GatewayConfig {
                 "172.16.0.0/12".into(),
                 "10.66.0.0/24".into(),
                 "100.64.0.0/10".into(),
+                "169.254.0.0/16".into(),
             ],
             enet_interface: String::new(),
             lan_interface: String::new(),

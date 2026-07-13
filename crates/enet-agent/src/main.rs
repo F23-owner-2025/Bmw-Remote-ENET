@@ -71,17 +71,32 @@ async fn build_ethernet_port(cfg: &GatewayConfig, simulate: bool) -> anyhow::Res
         info!(name = %iface.name, mac = %iface.mac, "selected ENET candidate interface");
         warn!(
             "raw ENET capture requires Npcap (Windows) or CAP_NET_RAW (Linux); \
-             monitor-only for '{}'. Use --simulate for lab tests.",
+             monitor-only for '{}'. Tunnel to desktop will still connect.",
             iface.name
         );
+        // Until Npcap capture is wired, keep the tunnel up with a placeholder NIC.
         return Ok(Arc::new(NullEthernet { name: iface.name }));
     }
     let all = detect_candidate_interfaces();
-    warn!(count = all.len(), "no strong ENET candidate");
+    warn!(
+        count = all.len(),
+        "no strong ENET candidate — connecting to desktop anyway (vehicle link stays down until ENET is ready)"
+    );
     for i in &all {
         info!(name = %i.name, mac = %i.mac, up = i.is_up, "iface");
     }
-    anyhow::bail!("no ENET interface detected; pass --simulate or set enet_interface")
+    eprintln!();
+    eprintln!("  NOTE: No BMW ENET adapter detected yet.");
+    eprintln!("  The laptop will still connect to the desktop Host.");
+    eprintln!("  Plug the ENET cable in when ready (and install Npcap for real car traffic).");
+    eprintln!();
+    Ok(Arc::new(NullEthernet {
+        name: if preferred.is_empty() {
+            "pending-enet".into()
+        } else {
+            preferred.into()
+        },
+    }))
 }
 
 async fn resolve_peer(cfg: &GatewayConfig, args: &Args) -> anyhow::Result<(IpAddr, u16)> {

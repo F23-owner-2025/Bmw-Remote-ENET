@@ -245,7 +245,7 @@ fn configure_firewall(role: Role, progress: &ProgressFn) -> Result<()> {
             .args([
                 "-NoProfile",
                 "-Command",
-                "New-NetFirewallRule -DisplayName 'BMW ENET Tunnel' -Direction Inbound -Protocol UDP -LocalPort 47900 -RemoteAddress LocalSubnet -Action Allow -Profile Private | Out-Null; New-NetFirewallRule -DisplayName 'BMW ENET Discovery' -Direction Inbound -Protocol UDP -LocalPort 47902 -RemoteAddress LocalSubnet -Action Allow -Profile Private | Out-Null",
+                "New-NetFirewallRule -DisplayName 'BMW ENET Tunnel' -Direction Inbound -Protocol UDP -LocalPort 47900 -Action Allow -Profile Any | Out-Null; New-NetFirewallRule -DisplayName 'BMW ENET Discovery' -Direction Inbound -Protocol UDP -LocalPort 47902 -Action Allow -Profile Any | Out-Null",
             ])
             .status();
     }
