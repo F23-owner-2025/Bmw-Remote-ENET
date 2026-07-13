@@ -122,11 +122,30 @@ async fn resolve_peer(cfg: &GatewayConfig, args: &Args) -> anyhow::Result<(IpAdd
         .clone()
         .unwrap_or_else(|| cfg.pair_code.clone());
     eprintln!("Looking for BMW ENET Gateway on your LAN…");
-    let found = discover_gateways(cfg.discovery_port, &code, Duration::from_secs(3)).await?;
+    if !code.is_empty() {
+        eprintln!("  (filtering for pair code {code})");
+    }
+    let found = discover_gateways(cfg.discovery_port, &code, Duration::from_secs(5)).await?;
     let gw = found.into_iter().next().context(
         "No desktop on this LAN.\n\
-         If you're on a different network, set up Relay or WireGuard — see docs/REMOTE.md",
+         Common fixes:\n\
+         1) On the desktop dashboard, copy the EXACT pair code and use it here.\n\
+         2) Match passwords on both PCs (or clear password on both).\n\
+         3) Same Wi‑Fi, not Guest / client-isolation.\n\
+         4) Skip discovery — use the desktop IP directly:\n\
+            enet-agent --config config\\agent.toml --pair-code BMW-XXXX --peer 192.168.x.x\n\
+         (Find the desktop IP with: ipconfig   on the Host PC)",
     )?;
+    if gw.password_required && cfg.password.is_empty() {
+        eprintln!(
+            "WARNING: desktop requires a password, but this agent has an empty password."
+        );
+    }
+    if !gw.password_required && !cfg.password.is_empty() {
+        eprintln!(
+            "WARNING: this agent has a password set, but the desktop does not — clear password on the laptop or set the same password on the Host."
+        );
+    }
     eprintln!(
         "Found desktop “{}” at {} (tunnel {})",
         gw.hostname, gw.addr, gw.tunnel_port

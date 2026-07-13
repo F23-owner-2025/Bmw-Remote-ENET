@@ -74,10 +74,30 @@ pub fn generate_pair_code() -> String {
 }
 
 fn getrandom_fill(buf: &mut [u8]) -> Result<(), ()> {
-    use std::fs::File;
-    use std::io::Read;
-    let mut f = File::open("/dev/urandom").map_err(|_| ())?;
-    f.read_exact(buf).map_err(|_| ())
+    #[cfg(unix)]
+    {
+        use std::fs::File;
+        use std::io::Read;
+        let mut f = File::open("/dev/urandom").map_err(|_| ())?;
+        f.read_exact(buf).map_err(|_| ())
+    }
+    #[cfg(windows)]
+    {
+        // Simple time-based fill when /dev/urandom is unavailable.
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        for (i, b) in buf.iter_mut().enumerate() {
+            *b = ((t >> (i * 8)) as u8).wrapping_add(i as u8).wrapping_mul(31);
+        }
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = buf;
+        Err(())
+    }
 }
 
 /// Resolved gateway from LAN discovery.
@@ -97,6 +117,31 @@ pub struct DiscoveredGateway {
     pub password_required: bool,
 }
 
+/// Guess /24 subnet broadcast addresses for local IPv4 interfaces.
+async fn local_subnet_broadcasts() -> Vec<Ipv4Addr> {
+    let mut out = vec![Ipv4Addr::BROADCAST];
+    // Learn primary outbound IPv4 (works on Windows/macOS/Linux).
+    if let Ok(sock) = UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await {
+        if sock
+            .connect(SocketAddr::from((Ipv4Addr::new(8, 8, 8, 8), 80)))
+            .await
+            .is_ok()
+        {
+            if let Ok(local) = sock.local_addr() {
+                if let IpAddr::V4(v4) = local.ip() {
+                    let o = v4.octets();
+                    if o[0] != 127 {
+                        out.push(Ipv4Addr::new(o[0], o[1], o[2], 255));
+                    }
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Broadcast a discovery query and wait for announces.
 pub async fn discover_gateways(
     discovery_port: u16,
@@ -105,24 +150,55 @@ pub async fn discover_gateways(
 ) -> anyhow::Result<Vec<DiscoveredGateway>> {
     let sock = UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await?;
     sock.set_broadcast(true)?;
+
+    // Also listen on the discovery port so we hear Host beacons (not only query replies).
+    // Binding may fail if another process already owns 47902 — that's fine.
+    let passive = UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, discovery_port)))
+        .await
+        .ok();
+    if let Some(ref p) = passive {
+        let _ = p.set_broadcast(true);
+    }
+
     let query = DiscoveryMessage::Query {
         pair_code: pair_code.to_string(),
     };
     let payload = query.encode()?;
-    let dest = SocketAddr::from((Ipv4Addr::BROADCAST, discovery_port));
-    sock.send_to(&payload, dest).await?;
-    // Also try limited broadcasts commonly used on home LANs
-    let _ = sock
-        .send_to(&payload, SocketAddr::from((Ipv4Addr::new(255, 255, 255, 255), discovery_port)))
-        .await;
+
+    for bcast in local_subnet_broadcasts().await {
+        let dest = SocketAddr::from((bcast, discovery_port));
+        match sock.send_to(&payload, dest).await {
+            Ok(_) => debug!(%dest, "sent discovery query"),
+            Err(e) => debug!(%dest, error = %e, "discovery send failed"),
+        }
+    }
 
     let mut found = Vec::new();
     let deadline = tokio::time::Instant::now() + timeout;
-    let mut buf = vec![0u8; 2048];
+    let mut buf_a = vec![0u8; 2048];
+    let mut buf_b = vec![0u8; 2048];
     while tokio::time::Instant::now() < deadline {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        match tokio::time::timeout(remaining, sock.recv_from(&mut buf)).await {
-            Ok(Ok((n, src))) => match DiscoveryMessage::decode(&buf[..n]) {
+        let recv = async {
+            if let Some(ref p) = passive {
+                tokio::select! {
+                    r = sock.recv_from(&mut buf_a) => r.map(|(n, src)| (n, src, true)),
+                    r = p.recv_from(&mut buf_b) => r.map(|(n, src)| (n, src, false)),
+                }
+            } else {
+                sock.recv_from(&mut buf_a)
+                    .await
+                    .map(|(n, src)| (n, src, true))
+            }
+        };
+        match tokio::time::timeout(remaining, recv).await {
+            Ok(Ok((n, src, from_query_sock))) => {
+                let data = if from_query_sock {
+                    &buf_a[..n]
+                } else {
+                    &buf_b[..n]
+                };
+                match DiscoveryMessage::decode(data) {
                 Ok(DiscoveryMessage::Announce {
                     hostname,
                     tunnel_port,
@@ -135,6 +211,12 @@ pub async fn discover_gateways(
                         && !announced_code.is_empty()
                         && !pair_code.eq_ignore_ascii_case(&announced_code)
                     {
+                        debug!(
+                            %src,
+                            want = %pair_code,
+                            got = %announced_code,
+                            "ignoring gateway with different pair code"
+                        );
                         continue;
                     }
                     if found.iter().any(|g: &DiscoveredGateway| g.addr == src.ip()) {
@@ -152,7 +234,8 @@ pub async fn discover_gateways(
                 }
                 Ok(_) => {}
                 Err(e) => debug!(error = %e, "ignore discovery packet"),
-            },
+            }
+            }
             Ok(Err(e)) => warn!(error = %e, "discovery recv error"),
             Err(_) => break,
         }
@@ -193,7 +276,9 @@ pub async fn run_gateway_beacon(
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                let _ = sock.send_to(&payload, SocketAddr::from((Ipv4Addr::BROADCAST, discovery_port))).await;
+                for bcast in local_subnet_broadcasts().await {
+                    let _ = sock.send_to(&payload, SocketAddr::from((bcast, discovery_port))).await;
+                }
             }
             res = sock.recv_from(&mut buf) => {
                 if let Ok((n, src)) = res {

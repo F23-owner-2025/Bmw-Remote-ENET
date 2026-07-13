@@ -75,10 +75,23 @@ pub fn score_enet_candidate(iface: &InterfaceInfo, preferred_name: &str) -> i32 
             score += 5;
         }
     }
-    // Deprioritize known virtual / tunnel adapters
-    for needle in ["wintun", "tap", "vpn", "hyper-v", "vethernet", "docker", "wsll"] {
+    // Deprioritize known virtual / tunnel / wifi adapters (Wi‑Fi is not BMW ENET).
+    for needle in [
+        "wintun",
+        "tap",
+        "vpn",
+        "hyper-v",
+        "vethernet",
+        "docker",
+        "wsll",
+        "wi-fi",
+        "wifi",
+        "wlan",
+        "wireless",
+        "bluetooth",
+    ] {
         if desc.contains(needle) || name.contains(needle) {
-            score -= 40;
+            score -= 80;
         }
     }
     if iface.is_up {
