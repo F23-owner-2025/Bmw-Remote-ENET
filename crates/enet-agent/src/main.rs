@@ -90,7 +90,8 @@ impl EthernetPort for MonitoredEthernet {
         "monitored-enet"
     }
     async fn link_up(&self) -> bool {
-        // Re-detect adapter if still pending.
+        // Never block the tunnel runtime with PowerShell here — a background
+        // refresher updates `link`. Keepalive/RTT must stay on the fast path.
         {
             let cur = self.name.read().clone();
             if cur.is_empty() || cur == "pending-enet" {
@@ -99,10 +100,7 @@ impl EthernetPort for MonitoredEthernet {
                 }
             }
         }
-        let name = self.name.read().clone();
-        let up = adapter_link_up(&name);
-        self.link.store(up, Ordering::Relaxed);
-        up
+        self.link.load(Ordering::Relaxed)
     }
     async fn recv(&self) -> anyhow::Result<Bytes> {
         // Npcap capture not wired yet — keep the task parked.
@@ -297,6 +295,29 @@ fn spawn_status_server(live: Arc<LiveStatus>, port: u16) {
     });
 }
 
+fn spawn_enet_link_refresher(enet_name: Arc<RwLock<String>>, enet_link: Arc<AtomicBool>) {
+    tokio::spawn(async move {
+        loop {
+            let name = enet_name.read().clone();
+            if !name.is_empty() && name != "pending-enet" {
+                let name_for_job = name.clone();
+                let up = tokio::task::spawn_blocking(move || adapter_link_up(&name_for_job))
+                    .await
+                    .unwrap_or(false);
+                enet_link.store(up, Ordering::Relaxed);
+            } else if let Some(iface) = pick_enet_interface("") {
+                *enet_name.write() = iface.name.clone();
+                let n = iface.name;
+                let up = tokio::task::spawn_blocking(move || adapter_link_up(&n))
+                    .await
+                    .unwrap_or(false);
+                enet_link.store(up, Ordering::Relaxed);
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
+}
+
 async fn run_until_stop(handle: TunnelHandle, live: Arc<LiveStatus>) {
     *live.handle.write() = Some(handle.clone());
     let mut last_line = String::new();
@@ -308,13 +329,9 @@ async fn run_until_stop(handle: TunnelHandle, live: Arc<LiveStatus>) {
         _ = async {
             while handle.is_running() {
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                // Refresh OS ENET link for the indicator.
-                let name = live.enet_name.read().clone();
-                if !name.is_empty() {
-                    live.enet_link.store(adapter_link_up(&name), Ordering::Relaxed);
-                }
+                // Link bit is refreshed by spawn_enet_link_refresher (non-blocking here).
                 let st = handle.snapshot_state();
-                let snap = handle.stats.snapshot();
+                let (_last, rtt_p99, _loss) = handle.stats.peek_quality();
                 let desk = matches!(st.connection, ConnectionState::Connected)
                     || st.laptop_connected;
                 let enet = live.enet_link.load(Ordering::Relaxed) || st.vehicle.link_up;
@@ -323,7 +340,7 @@ async fn run_until_stop(handle: TunnelHandle, live: Arc<LiveStatus>) {
                     if desk { "OK" } else { "…" },
                     if enet { "PLUGGED" } else { "—" },
                     if st.vehicle.awake { "AWAKE" } else { "SLEEP" },
-                    snap.rtt_ms
+                    rtt_p99
                 );
                 if line != last_line {
                     eprintln!("  {line}");
@@ -393,6 +410,7 @@ async fn main() -> anyhow::Result<()> {
         enet_link: enet_link.clone(),
     });
     spawn_status_server(live.clone(), status_port);
+    spawn_enet_link_refresher(enet_name.clone(), enet_link.clone());
 
     let _guard = init_logging(cfg.log_level, &cfg.log_dir)?;
     info!(

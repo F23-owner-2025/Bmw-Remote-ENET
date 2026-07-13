@@ -118,7 +118,7 @@ pub fn adapter_link_up(name: &str) -> bool {
     static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
     if let Ok(guard) = CACHE.lock() {
         if let Some(c) = guard.as_ref() {
-            if c.name.eq_ignore_ascii_case(name) && c.at.elapsed() < Duration::from_millis(800) {
+            if c.name.eq_ignore_ascii_case(name) && c.at.elapsed() < Duration::from_secs(3) {
                 return c.up;
             }
         }

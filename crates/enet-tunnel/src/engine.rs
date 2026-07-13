@@ -354,8 +354,17 @@ impl TunnelEngine {
                 let timeout = Duration::from_millis(opts.peer_timeout_ms.max(1000));
                 while running.load(Ordering::SeqCst) {
                     tokio::time::sleep(interval).await;
-                    // Only the laptop agent owns local ENET link state.
-                    // The desktop gateway must not treat its virtual TAP as the car.
+                    let peer = *peer_slot.read();
+                    if let Some(peer) = peer {
+                        // Send keepalive FIRST so RTT isn't delayed by link checks.
+                        let seq = tx_seq.fetch_add(1, Ordering::Relaxed);
+                        let frame = TunnelFrame::keepalive(seq, now_ms_lo(), 0);
+                        if let Ok(pkt) = frame.encode(opts.crypto.as_ref()) {
+                            let _ = socket.send_to(&pkt, peer).await;
+                            stats.record_tx(pkt.len());
+                        }
+                    }
+                    // Only the laptop agent owns local ENET link state (cached / non-blocking).
                     if opts.role == "agent" {
                         let link = eth.link_up().await;
                         let mut st = state.write();
@@ -366,12 +375,6 @@ impl TunnelEngine {
                     }
                     let peer = *peer_slot.read();
                     if let Some(peer) = peer {
-                        let seq = tx_seq.fetch_add(1, Ordering::Relaxed);
-                        let frame = TunnelFrame::keepalive(seq, now_ms_lo(), 0);
-                        if let Ok(pkt) = frame.encode(opts.crypto.as_ref()) {
-                            let _ = socket.send_to(&pkt, peer).await;
-                            stats.record_tx(pkt.len());
-                        }
                         let (rtt_ms, _rtt_p99, loss_rate) = stats.peek_quality();
                         let st = state.read().clone();
                         let status = ControlPayload::Status {
