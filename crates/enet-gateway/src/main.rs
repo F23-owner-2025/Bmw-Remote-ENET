@@ -74,6 +74,43 @@ struct AppState {
     handle: Arc<RwLock<Option<TunnelHandle>>>,
     health: Arc<RwLock<HealthMonitor>>,
     config_path: PathBuf,
+    activity: Arc<RwLock<ActivityLog>>,
+}
+
+#[derive(Clone, Serialize)]
+struct ActivityEntry {
+    ts: f64,
+    level: String,
+    message: String,
+}
+
+struct ActivityLog {
+    entries: Vec<ActivityEntry>,
+}
+
+impl ActivityLog {
+    fn new() -> Self {
+        Self {
+            entries: vec![ActivityEntry {
+                ts: now_secs_f64(),
+                level: "info".into(),
+                message: "Dashboard ready — waiting for laptop agent".into(),
+            }],
+        }
+    }
+
+    fn push(&mut self, level: &str, message: impl Into<String>) {
+        self.entries.push(ActivityEntry {
+            ts: now_secs_f64(),
+            level: level.into(),
+            message: message.into(),
+        });
+        const MAX: usize = 400;
+        if self.entries.len() > MAX {
+            let drain = self.entries.len() - MAX;
+            self.entries.drain(0..drain);
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -234,11 +271,85 @@ async fn main() -> anyhow::Result<()> {
         handle: Arc::new(RwLock::new(Some(handle.clone()))),
         health: Arc::new(RwLock::new(HealthMonitor::new())),
         config_path: args.config.clone(),
+        activity: Arc::new(RwLock::new(ActivityLog::new())),
     };
+
+    {
+        let mut log = app_state.activity.write();
+        log.push("info", format!("Gateway started · pair {}", pair_code));
+        log.push("info", format!("Network mode: {}", cfg.network_mode.label()));
+        if cfg.network_mode == NetworkMode::Relay {
+            log.push("info", format!("Relay: {}", cfg.relay_url));
+        }
+    }
+
+    // Derive activity-log lines from status transitions.
+    {
+        let watch_state = app_state.clone();
+        tokio::spawn(async move {
+            let mut prev_lap = false;
+            let mut prev_link = false;
+            let mut prev_awake = false;
+            let mut prev_peer = String::new();
+            let mut prev_conn = ConnectionState::Starting;
+            loop {
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                let snap = {
+                    let guard = watch_state.handle.read();
+                    guard.as_ref().map(|h| h.snapshot_state())
+                };
+                let Some(st) = snap else { continue };
+                let mut log = watch_state.activity.write();
+                if st.connection != prev_conn {
+                    log.push(
+                        "info",
+                        format!("Tunnel state → {:?}", st.connection),
+                    );
+                    prev_conn = st.connection;
+                }
+                let peer = st.peer_endpoint.clone().unwrap_or_default();
+                if st.laptop_connected && !prev_lap {
+                    log.push(
+                        "info",
+                        if peer.is_empty() {
+                            "Laptop connected".into()
+                        } else {
+                            format!("Laptop connected · {peer}")
+                        },
+                    );
+                } else if !st.laptop_connected && prev_lap {
+                    log.push("warn", "Laptop disconnected");
+                }
+                if peer != prev_peer && !peer.is_empty() {
+                    log.push("info", format!("Peer endpoint · {peer}"));
+                    prev_peer = peer;
+                }
+                if st.vehicle.link_up && !prev_link {
+                    let extra = st
+                        .vehicle
+                        .discovered_ip
+                        .as_deref()
+                        .unwrap_or("link up");
+                    log.push("info", format!("Vehicle ENET · {extra}"));
+                } else if !st.vehicle.link_up && prev_link {
+                    log.push("warn", "Vehicle ENET link down");
+                }
+                if st.vehicle.awake && !prev_awake {
+                    log.push("info", "Vehicle state → AWAKE");
+                } else if !st.vehicle.awake && prev_awake {
+                    log.push("info", "Vehicle state → SLEEP");
+                }
+                prev_lap = st.laptop_connected;
+                prev_link = st.vehicle.link_up;
+                prev_awake = st.vehicle.awake;
+            }
+        });
+    }
 
     let api = Router::new()
         .route("/", get(dashboard_html))
         .route("/api/status", get(api_status))
+        .route("/api/logs", get(api_logs))
         .route("/api/start", post(api_start))
         .route("/api/stop", post(api_stop))
         .route("/api/restart", post(api_restart))
@@ -276,121 +387,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn dashboard_html(State(state): State<AppState>) -> Html<String> {
-    let status = api_status(State(state)).await.0;
-    let connected = matches!(status.state.connection, ConnectionState::Connected)
-        || status.state.laptop_connected;
-    let vehicle = status.state.vehicle.link_up;
-    let awake = status.state.vehicle.awake;
-    let safe = status.flash_safety.safe;
-    let pair = html_escape(&status.pair_code);
-    let msg = html_escape(&status.friendly_status);
-    let mode = html_escape(&status.network_mode_label);
-    let relay = if status.relay_url.is_empty() {
-        String::new()
-    } else {
-        format!(" · relay {}", html_escape(&status.relay_url))
-    };
-    let hints: String = status
-        .setup_hints
-        .iter()
-        .map(|h| format!("<li>{}</li>", html_escape(h)))
-        .collect();
-
-    Html(format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta http-equiv="refresh" content="3"/>
-<title>BMW ENET Gateway</title>
-<style>
-  :root {{
-    --bg: #12161c; --card: #1a222c; --text: #e6eaf0; --muted: #8fa0b0;
-    --ok: #3cb478; --warn: #dc783c; --accent: #008ca0;
-  }}
-  * {{ box-sizing: border-box; }}
-  body {{
-    margin: 0; font-family: "Segoe UI", system-ui, sans-serif;
-    background: radial-gradient(1200px 600px at 10% -10%, #1c3038, var(--bg));
-    color: var(--text); min-height: 100vh; padding: 2rem;
-  }}
-  h1 {{ font-weight: 650; letter-spacing: 0.02em; margin: 0 0 0.25rem; }}
-  .sub {{ color: var(--muted); margin-bottom: 1.5rem; }}
-  .grid {{ display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }}
-  .pill {{
-    background: var(--card); border-radius: 12px; padding: 1rem 1.1rem;
-    border: 1px solid #2a3542;
-  }}
-  .dot {{ display:inline-block; width:0.7rem; height:0.7rem; border-radius:50%; margin-right:0.5rem; }}
-  .on {{ background: var(--ok); }} .off {{ background: #5a6570; }}
-  .pair {{
-    font-size: 2rem; font-weight: 700; letter-spacing: 0.12em;
-    color: var(--accent); margin: 0.4rem 0 1rem;
-  }}
-  .hint {{ background: var(--card); border-radius: 12px; padding: 1.2rem 1.4rem; border: 1px solid #2a3542; }}
-  .hint ol {{ margin: 0.4rem 0 0 1.1rem; color: var(--muted); }}
-  .safe-ok {{ color: var(--ok); }} .safe-no {{ color: var(--warn); }}
-  a {{ color: var(--accent); }}
-  .actions button {{
-    background: var(--accent); color: white; border: 0; border-radius: 8px;
-    padding: 0.55rem 1rem; margin-right: 0.5rem; cursor: pointer; font-weight: 600;
-  }}
-  .actions button.secondary {{ background: #2a3542; }}
-</style>
-</head>
-<body>
-  <h1>BMW ENET Gateway</h1>
-  <div class="sub">F-Series remote diagnostics · {msg}</div>
-
-  <div class="pair">Pair code: {pair}</div>
-  <p class="sub">Network mode: {mode}{relay}</p>
-
-  <div class="grid">
-    <div class="pill"><span class="dot {gw_cls}"></span>Gateway running</div>
-    <div class="pill"><span class="dot {lap_cls}"></span>Laptop connected</div>
-    <div class="pill"><span class="dot {veh_cls}"></span>Vehicle link</div>
-    <div class="pill"><span class="dot {awk_cls}"></span>Vehicle awake</div>
-  </div>
-
-  <p style="margin-top:1.25rem">
-    Flash safety:
-    <strong class="{safe_cls}">{safe_txt}</strong>
-  </p>
-  <p class="sub">RTT p99 {rtt:.1} ms · Loss {loss:.3}% · CPU {cpu:.0}%</p>
-
-  <div class="hint">
-    <strong>Get connected in 5 steps</strong>
-    <ol>{hints}</ol>
-  </div>
-
-  <p class="sub" style="margin-top:1.5rem">
-    Different networks? Use a relay or WireGuard — see docs/REMOTE.md.
-  </p>
-  <div class="actions">
-    <button onclick="fetch('/api/complete-setup',{{method:'POST'}})">Mark setup complete</button>
-    <button class="secondary" onclick="fetch('/api/export-logs',{{method:'POST'}}).then(r=>r.json()).then(j=>alert(j.path||j.error||'done'))">Export logs</button>
-  </div>
-</body>
-</html>"#,
-        gw_cls = if status.state.gateway_running { "on" } else { "off" },
-        lap_cls = if connected { "on" } else { "off" },
-        veh_cls = if vehicle { "on" } else { "off" },
-        awk_cls = if awake { "on" } else { "off" },
-        safe_cls = if safe { "safe-ok" } else { "safe-no" },
-        safe_txt = if safe { "OK to consider flashing" } else { "Not safe — do not flash yet" },
-        rtt = status.stats.rtt_p99_ms,
-        loss = status.stats.loss_rate * 100.0,
-        cpu = status.cpu_pct,
-    ))
+async fn dashboard_html() -> Html<&'static str> {
+    Html(include_str!("dashboard.html"))
 }
 
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+async fn api_logs(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let entries = state.activity.read().entries.clone();
+    Json(serde_json::json!({ "entries": entries }))
 }
 
 fn friendly_status(state: &GatewayState) -> String {
@@ -604,4 +607,12 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+fn now_secs_f64() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }

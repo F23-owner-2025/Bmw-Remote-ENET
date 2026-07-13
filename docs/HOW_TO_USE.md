@@ -21,8 +21,10 @@ You normally only look at the UI on the **desktop**.
 
 ### Browser dashboard (simplest)
 
-1. Make sure Host install finished (Windows service `BmwEnetGateway`).
+1. Make sure Host install finished and `enet-gateway` is running.
 2. Open **http://127.0.0.1:47901/**
+3. Left side: connection status + performance  
+   Right side: **Activity log** for troubleshooting (auto-refreshes)
 
 ### Native GUI
 

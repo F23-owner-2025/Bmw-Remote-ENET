@@ -206,6 +206,8 @@ impl TunnelEngine {
                                     info!(%src, "learned tunnel peer");
                                     *slot = Some(src);
                                     let _ = peer_watch_tx.send(Some(src));
+                                    let mut st = state.write();
+                                    st.peer_endpoint = Some(src.to_string());
                                 } else if let Some(existing) = *slot {
                                     if existing.ip() != src.ip() && opts.peer.is_some() {
                                         warn!(%src, expected = %existing, "unexpected peer ip");
@@ -213,6 +215,8 @@ impl TunnelEngine {
                                         continue;
                                     }
                                     *slot = Some(src);
+                                    let mut st = state.write();
+                                    st.peer_endpoint = Some(src.to_string());
                                 }
                             }
                             *last_peer_rx.write() = Instant::now();
@@ -283,6 +287,7 @@ impl TunnelEngine {
                                             st.connection = ConnectionState::Reconnecting;
                                             st.laptop_connected = false;
                                             st.status_message = "Peer disconnected".into();
+                                            st.peer_endpoint = None;
                                         }
                                         FrameType::Ack => {}
                                     }
@@ -365,6 +370,7 @@ impl TunnelEngine {
                         st.connection = ConnectionState::Reconnecting;
                         st.laptop_connected = false;
                         st.status_message = "Peer timeout — reconnecting".into();
+                        st.peer_endpoint = None;
                         drop(st);
                         if opts.peer.is_none() {
                             *peer_slot.write() = None;

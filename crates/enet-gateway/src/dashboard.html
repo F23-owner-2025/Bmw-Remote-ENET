@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>BMW ENET Gateway</title>
+<style>
+  :root {
+    --bg: #0f1216;
+    --panel: #171b21;
+    --card: #1c222b;
+    --border: #2a3340;
+    --text: #e8edf4;
+    --muted: #8b9aab;
+    --ok: #2fbf71;
+    --warn: #e0a03a;
+    --bad: #e05a4a;
+    --accent: #3d9bb8;
+    --accent-dim: #2a6f84;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: #12161c;
+  }
+  header .brand { font-weight: 650; letter-spacing: 0.02em; }
+  header .meta { color: var(--muted); font-size: 0.85rem; text-align: right; }
+  header .pair {
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    font-size: 1.05rem;
+  }
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(320px, 1.1fr) minmax(320px, 1fr);
+    min-height: 0;
+  }
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+  .col {
+    min-height: 0;
+    overflow: auto;
+    padding: 1rem 1.1rem 1.25rem;
+  }
+  .col.left { border-right: 1px solid var(--border); }
+  h2 {
+    margin: 0 0 0.75rem;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .status-list { display: flex; flex-direction: column; gap: 0.55rem; }
+  .status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 0.9rem;
+  }
+  .status-row .label { font-weight: 600; }
+  .status-row .detail { color: var(--muted); font-size: 0.82rem; margin-top: 0.15rem; }
+  .badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.28rem 0.55rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge.ok { background: rgba(47,191,113,0.18); color: var(--ok); }
+  .badge.warn { background: rgba(224,160,58,0.18); color: var(--warn); }
+  .badge.off { background: rgba(139,154,171,0.15); color: var(--muted); }
+  .badge.bad { background: rgba(224,90,74,0.18); color: var(--bad); }
+  .metrics {
+    margin-top: 1.1rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+  .metric {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 0.85rem;
+  }
+  .metric .k { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  .metric .v { font-size: 1.25rem; font-weight: 650; margin-top: 0.25rem; }
+  .metric .s { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
+  .safety {
+    margin-top: 0.9rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .safety.ok { border-color: rgba(47,191,113,0.35); }
+  .safety.no { border-color: rgba(224,160,58,0.4); }
+  .hints {
+    margin-top: 0.9rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 0.9rem;
+  }
+  .hints ol { margin: 0.35rem 0 0 1.1rem; color: var(--muted); padding: 0; }
+  .log-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 420px;
+  }
+  .log-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.6rem;
+  }
+  .log-toolbar input {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 0.45rem 0.65rem;
+  }
+  .log-box {
+    flex: 1;
+    background: #0c0f13;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.65rem 0.75rem;
+    overflow: auto;
+    font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+  .log-line { margin: 0 0 0.2rem; white-space: pre-wrap; word-break: break-word; }
+  .log-line .ts { color: #6d7c8d; }
+  .log-line .lvl-info { color: var(--accent); }
+  .log-line .lvl-warn { color: var(--warn); }
+  .log-line .lvl-error { color: var(--bad); }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 0.75rem;
+  }
+  button {
+    background: #2a3340;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.45rem 0.75rem;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  button.primary { background: var(--accent-dim); border-color: var(--accent); }
+  button:hover { filter: brightness(1.08); }
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 0.45rem 1.25rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="brand">Remote BMW ENET Gateway</div>
+      <div class="meta" id="subtitle">F-Series remote diagnostics</div>
+    </div>
+    <div class="meta">
+      <div class="pair" id="pair">Pair code: …</div>
+      <div id="mode">Network mode: …</div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <section class="col left">
+      <h2>System status</h2>
+      <div class="status-list">
+        <div class="status-row">
+          <div>
+            <div class="label">Gateway service</div>
+            <div class="detail" id="gw-detail">—</div>
+          </div>
+          <span class="badge off" id="gw-badge">STOPPED</span>
+        </div>
+        <div class="status-row">
+          <div>
+            <div class="label">Laptop connection</div>
+            <div class="detail" id="lap-detail">Waiting for agent…</div>
+          </div>
+          <span class="badge off" id="lap-badge">WAITING</span>
+        </div>
+        <div class="status-row">
+          <div>
+            <div class="label">Vehicle ENET</div>
+            <div class="detail" id="veh-detail">No link yet</div>
+          </div>
+          <span class="badge off" id="veh-badge">DOWN</span>
+        </div>
+        <div class="status-row">
+          <div>
+            <div class="label">Vehicle state</div>
+            <div class="detail" id="awk-detail">Ignition / wake unknown</div>
+          </div>
+          <span class="badge off" id="awk-badge">SLEEP</span>
+        </div>
+      </div>
+
+      <h2 style="margin-top:1.15rem">Performance</h2>
+      <div class="metrics">
+        <div class="metric">
+          <div class="k">Latency</div>
+          <div class="v" id="m-rtt">—</div>
+          <div class="s" id="m-rtt-s">p99 / last</div>
+        </div>
+        <div class="metric">
+          <div class="k">Bandwidth</div>
+          <div class="v" id="m-bw">—</div>
+          <div class="s" id="m-bw-s">RX + TX</div>
+        </div>
+        <div class="metric">
+          <div class="k">CPU</div>
+          <div class="v" id="m-cpu">—</div>
+          <div class="s">host process</div>
+        </div>
+        <div class="metric">
+          <div class="k">Packet rate</div>
+          <div class="v" id="m-pps">—</div>
+          <div class="s" id="m-pps-s">in / out · errors</div>
+        </div>
+      </div>
+
+      <div class="safety no" id="safety">
+        <strong>Flash safety:</strong> <span id="safety-txt">checking…</span>
+      </div>
+
+      <div class="hints" id="hints-box">
+        <strong>Get connected</strong>
+        <ol id="hints"></ol>
+      </div>
+
+      <div class="actions">
+        <button class="primary" onclick="post('/api/complete-setup')">Mark setup complete</button>
+        <button onclick="post('/api/restart')">Restart tunnel</button>
+        <button onclick="exportLogs()">Export logs</button>
+      </div>
+    </section>
+
+    <section class="col right">
+      <div class="log-panel">
+        <h2>Activity log</h2>
+        <div class="log-toolbar">
+          <input id="log-filter" placeholder="Filter logs…" oninput="renderLogs()"/>
+          <button onclick="clearLogsView()">Clear view</button>
+        </div>
+        <div class="log-box" id="log-box"></div>
+        <div class="actions">
+          <button onclick="refreshNow()">Refresh</button>
+          <button onclick="exportLogs()">Export logs</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <span id="footer-left">BMW ENET Gateway</span>
+    <span id="footer-right">v?</span>
+  </footer>
+
+<script>
+let logs = [];
+let hideBefore = 0;
+
+function fmtMbps(bps) {
+  return (bps * 8 / 1e6).toFixed(2) + ' Mbps';
+}
+
+function setBadge(el, text, kind) {
+  el.textContent = text;
+  el.className = 'badge ' + kind;
+}
+
+async function post(url) {
+  try {
+    const r = await fetch(url, { method: 'POST' });
+    const j = await r.json();
+    pushLocal('info', j.message || j.ok ? ('OK ' + url) : JSON.stringify(j));
+    refreshNow();
+  } catch (e) {
+    pushLocal('error', String(e));
+  }
+}
+
+async function exportLogs() {
+  try {
+    const r = await fetch('/api/export-logs', { method: 'POST' });
+    const j = await r.json();
+    alert(j.path || j.error || 'done');
+  } catch (e) {
+    alert(String(e));
+  }
+}
+
+function pushLocal(level, msg) {
+  logs.push({ ts: Date.now() / 1000, level, message: msg });
+  renderLogs();
+}
+
+function clearLogsView() {
+  hideBefore = Date.now() / 1000;
+  renderLogs();
+}
+
+function renderLogs() {
+  const q = (document.getElementById('log-filter').value || '').toLowerCase();
+  const box = document.getElementById('log-box');
+  const lines = logs.filter(l => l.ts >= hideBefore && (!q || (l.message || '').toLowerCase().includes(q) || (l.level || '').includes(q)));
+  box.innerHTML = lines.map(l => {
+    const d = new Date((l.ts || 0) * 1000);
+    const ts = d.toLocaleTimeString();
+    const lvl = (l.level || 'info').toLowerCase();
+    return `<div class="log-line"><span class="ts">[${ts}]</span> <span class="lvl-${lvl}">[${lvl.toUpperCase()}]</span> ${escapeHtml(l.message || '')}</div>`;
+  }).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderStatus(s) {
+  document.getElementById('subtitle').textContent = s.friendly_status || 'F-Series remote diagnostics';
+  document.getElementById('pair').textContent = 'Pair code: ' + (s.pair_code || '—');
+  let mode = s.network_mode_label || s.network_mode || '—';
+  if (s.relay_url) mode += ' · ' + s.relay_url;
+  document.getElementById('mode').textContent = 'Network mode: ' + mode;
+
+  const running = !!(s.state && s.state.gateway_running);
+  setBadge(document.getElementById('gw-badge'), running ? 'RUNNING' : 'STOPPED', running ? 'ok' : 'off');
+  document.getElementById('gw-detail').textContent = running ? ('Listening · v' + ((s.state && s.state.version) || '')) : 'Gateway process not running';
+
+  const lap = !!(s.state && (s.state.laptop_connected || (s.state.connection === 'connected')));
+  const peer = (s.state && s.state.peer_endpoint) || '';
+  setBadge(document.getElementById('lap-badge'), lap ? 'CONNECTED' : 'WAITING', lap ? 'ok' : 'off');
+  document.getElementById('lap-detail').textContent = lap
+    ? ((s.network_mode_label || 'LAN') + (peer ? (' · ' + peer) : ''))
+    : 'Open Agent on the laptop and use this pair code';
+
+  const link = !!(s.state && s.state.vehicle && s.state.vehicle.link_up);
+  const vip = (s.state && s.state.vehicle && s.state.vehicle.discovered_ip) || '';
+  const vin = (s.state && s.state.vehicle && s.state.vehicle.vin) || '';
+  setBadge(document.getElementById('veh-badge'), link ? 'CONNECTED' : 'DOWN', link ? 'ok' : 'off');
+  document.getElementById('veh-detail').textContent = link
+    ? ('Link up' + (vip ? (' · ' + vip) : '') + (vin ? (' · VIN ' + vin) : ''))
+    : 'Plug ENET into car + laptop';
+
+  const awake = !!(s.state && s.state.vehicle && s.state.vehicle.awake);
+  setBadge(document.getElementById('awk-badge'), awake ? 'AWAKE' : 'SLEEP', awake ? 'warn' : 'off');
+  document.getElementById('awk-detail').textContent = awake ? 'Vehicle answering diagnostics' : 'Turn ignition ON / wake the car';
+
+  const st = s.stats || {};
+  document.getElementById('m-rtt').textContent = (st.rtt_p99_ms || 0).toFixed(1) + ' ms';
+  document.getElementById('m-rtt-s').textContent = 'p99 · last ' + (st.rtt_ms || 0).toFixed(1) + ' ms';
+  const bw = (st.rx_bps || 0) + (st.tx_bps || 0);
+  document.getElementById('m-bw').textContent = fmtMbps(bw);
+  document.getElementById('m-bw-s').textContent = 'RX ' + fmtMbps(st.rx_bps || 0) + ' · TX ' + fmtMbps(st.tx_bps || 0);
+  document.getElementById('m-cpu').textContent = (s.cpu_pct || 0).toFixed(0) + '%';
+  const pps = (st.rx_pps || 0) + (st.tx_pps || 0);
+  document.getElementById('m-pps').textContent = pps.toFixed(0) + ' pkts/s';
+  document.getElementById('m-pps-s').textContent = 'In ' + (st.rx_pps || 0).toFixed(0) + ' · Out ' + (st.tx_pps || 0).toFixed(0) + ' · Err ' + (st.errors || 0);
+
+  const safe = !!(s.flash_safety && s.flash_safety.safe);
+  const safety = document.getElementById('safety');
+  safety.className = 'safety ' + (safe ? 'ok' : 'no');
+  document.getElementById('safety-txt').textContent = safe
+    ? ('SAFE' + ((s.flash_safety && s.flash_safety.warning) ? (' — ' + s.flash_safety.warning) : ''))
+    : ('Not safe — do not flash yet' + ((s.flash_safety && s.flash_safety.warning) ? (' — ' + s.flash_safety.warning) : ''));
+
+  const hints = s.setup_hints || [];
+  document.getElementById('hints').innerHTML = hints.map(h => '<li>' + escapeHtml(h) + '</li>').join('');
+  document.getElementById('hints-box').style.display = (s.setup_complete || hints.length === 0) ? 'none' : 'block';
+
+  document.getElementById('footer-left').textContent = s.friendly_status || 'BMW ENET Gateway';
+  document.getElementById('footer-right').textContent = 'v' + ((s.state && s.state.version) || '?');
+}
+
+async function refreshNow() {
+  try {
+    const [st, lg] = await Promise.all([
+      fetch('/api/status').then(r => r.json()),
+      fetch('/api/logs').then(r => r.json()),
+    ]);
+    renderStatus(st);
+    if (Array.isArray(lg.entries)) {
+      logs = lg.entries;
+      renderLogs();
+    }
+  } catch (e) {
+    pushLocal('error', 'Dashboard refresh failed: ' + e);
+  }
+}
+
+refreshNow();
+setInterval(refreshNow, 2000);
+</script>
+</body>
+</html>

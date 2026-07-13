@@ -155,6 +155,7 @@ impl RelayTunnelEngine {
             let reader = reader.clone();
             let eth = self.eth.clone();
             let opts = self.opts.base.clone();
+            let relay_url = self.opts.relay_url.clone();
             let stats = self.stats.clone();
             let state = self.state.clone();
             let running = running.clone();
@@ -185,6 +186,7 @@ impl RelayTunnelEngine {
                                         st.connection = ConnectionState::Connected;
                                         st.laptop_connected = true;
                                         st.status_message = "Connected via relay".into();
+                                        st.peer_endpoint = Some(format!("relay:{relay_url}"));
                                         st.vehicle.link_up = link;
                                     }
                                 }
@@ -193,6 +195,7 @@ impl RelayTunnelEngine {
                                     st.connection = ConnectionState::Connected;
                                     st.laptop_connected = true;
                                     st.status_message = "Connected via relay".into();
+                                    st.peer_endpoint = Some(format!("relay:{relay_url}"));
                                 }
                                 FrameType::Hello | FrameType::Status | FrameType::SafetyProbe => {
                                     if let Ok(ctrl) = ControlPayload::from_bytes(&frame.payload) {
@@ -210,12 +213,14 @@ impl RelayTunnelEngine {
                                         }
                                         st.connection = ConnectionState::Connected;
                                         st.status_message = "Connected via relay".into();
+                                        st.peer_endpoint = Some(format!("relay:{relay_url}"));
                                     }
                                 }
                                 FrameType::Goodbye => {
                                     let mut st = state.write();
                                     st.connection = ConnectionState::Reconnecting;
                                     st.laptop_connected = false;
+                                    st.peer_endpoint = None;
                                 }
                                 FrameType::Ack => {}
                             }

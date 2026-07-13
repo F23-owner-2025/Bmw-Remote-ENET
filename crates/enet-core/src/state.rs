@@ -53,6 +53,9 @@ pub struct GatewayState {
     pub last_error: Option<String>,
     /// Software version.
     pub version: String,
+    /// Connected peer endpoint (laptop), if known — e.g. `192.168.1.20:47900`.
+    #[serde(default)]
+    pub peer_endpoint: Option<String>,
 }
 
 impl GatewayState {
