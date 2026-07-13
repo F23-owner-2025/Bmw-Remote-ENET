@@ -30,6 +30,67 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
 
+/// Keep the process singleton so Host↔Client state cannot split across two agents.
+struct InstanceGuard {
+    #[cfg(windows)]
+    handle: *mut std::ffi::c_void,
+}
+
+// Windows CreateMutex handles are not Send in the type system; process-global is fine.
+unsafe impl Send for InstanceGuard {}
+unsafe impl Sync for InstanceGuard {}
+
+impl Drop for InstanceGuard {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        {
+            extern "system" {
+                fn CloseHandle(h: *mut std::ffi::c_void) -> i32;
+            }
+            if !self.handle.is_null() {
+                unsafe {
+                    CloseHandle(self.handle);
+                }
+            }
+        }
+    }
+}
+
+fn acquire_single_instance() -> Option<InstanceGuard> {
+    #[cfg(windows)]
+    {
+        extern "system" {
+            fn CreateMutexA(
+                lp: *mut std::ffi::c_void,
+                initial: i32,
+                name: *const u8,
+            ) -> *mut std::ffi::c_void;
+            fn GetLastError() -> u32;
+        }
+        const ERROR_ALREADY_EXISTS: u32 = 183;
+        let name = b"Global\\BMW-ENET-Agent-SingleInstance\0";
+        let handle =
+            unsafe { CreateMutexA(std::ptr::null_mut(), 1, name.as_ptr()) };
+        if handle.is_null() {
+            return Some(InstanceGuard { handle });
+        }
+        if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+            unsafe {
+                extern "system" {
+                    fn CloseHandle(h: *mut std::ffi::c_void) -> i32;
+                }
+                CloseHandle(handle);
+            }
+            return None;
+        }
+        return Some(InstanceGuard { handle });
+    }
+    #[cfg(not(windows))]
+    {
+        Some(InstanceGuard {})
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(
     name = "enet-agent",
@@ -237,26 +298,44 @@ fn friendly_line(desktop: bool, enet: bool, awake: bool) -> String {
 }
 
 async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
-    let (desktop, awake, vehicle_link, rtt_ms, loss_rate) = {
+    let (desktop, awake, vehicle_link, rtt_ms, loss_rate, conn_label) = {
         let guard = live.handle.read();
         if let Some(h) = guard.as_ref() {
             let st = h.snapshot_state();
-            let snap = h.stats.snapshot();
-            let desk = matches!(st.connection, ConnectionState::Connected) || st.laptop_connected;
+            let (last, _p99, loss) = h.stats.peek_quality();
+            let desk = matches!(
+                st.connection,
+                ConnectionState::Connected | ConnectionState::Reconnecting
+            ) || st.laptop_connected
+                || last > 0.0;
+            let label = match st.connection {
+                ConnectionState::Connected => "connected",
+                ConnectionState::Reconnecting => "reconnecting",
+                ConnectionState::WaitingForPeer => "waiting",
+                ConnectionState::Starting => "starting",
+                _ => "down",
+            };
             (
                 desk,
                 st.vehicle.awake,
                 st.vehicle.link_up,
-                snap.rtt_ms,
-                snap.loss_rate,
+                last,
+                loss,
+                label,
             )
         } else {
-            (false, false, false, 0.0, 0.0)
+            (false, false, false, 0.0, 0.0, "searching")
         }
     };
     // Prefer OS carrier for cable indicator; fall back to tunnel vehicle_link.
     let enet = live.enet_link.load(Ordering::Relaxed) || vehicle_link;
     let desktop_connected = desktop;
+    let friendly = match conn_label {
+        "searching" => "Looking for desktop… (use --peer if Wi‑Fi↔wired)".into(),
+        "waiting" => "Waiting for desktop reply…".into(),
+        "reconnecting" => "Reconnecting to desktop…".into(),
+        _ => friendly_line(desktop_connected, enet, awake),
+    };
     Json(StatusJson {
         version: env!("CARGO_PKG_VERSION").into(),
         pair_code: live.pair_code.read().clone(),
@@ -268,7 +347,7 @@ async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
         vehicle_link: enet,
         rtt_ms,
         loss_rate,
-        friendly: friendly_line(desktop_connected, enet, awake),
+        friendly,
     })
 }
 
@@ -361,6 +440,21 @@ async fn run_until_stop(handle: TunnelHandle, live: Arc<LiveStatus>) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    let _instance = match acquire_single_instance() {
+        Some(g) => g,
+        None => {
+            eprintln!();
+            eprintln!("  BMW ENET Agent is already running.");
+            eprintln!("  Open status: http://127.0.0.1:47903/");
+            eprintln!();
+            eprintln!("  If the Host shows Connected but this page says Waiting,");
+            eprintln!("  you likely had two Clients fighting. Fix:");
+            eprintln!("    Stop-Process -Name enet-agent -Force");
+            eprintln!("    Start-ScheduledTask -TaskName BMW-ENET-Client");
+            eprintln!();
+            std::process::exit(0);
+        }
+    };
     let mut cfg = GatewayConfig::load(&args.config).unwrap_or_else(|_| {
         let mut c = GatewayConfig::default();
         c.role = Role::Agent;

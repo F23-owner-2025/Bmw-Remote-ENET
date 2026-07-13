@@ -309,10 +309,31 @@ impl TunnelEngine {
                                                 debug!(?ctrl, "control payload");
                                                 apply_control(&state, &opts.role, ctrl);
                                             }
-                                            let mut st = state.write();
-                                            st.connection = ConnectionState::Connected;
-                                            st.laptop_connected = true;
-                                            st.status_message = "Connected".into();
+                                            // Any control plane RX proves the path is live both ways.
+                                            {
+                                                let mut st = state.write();
+                                                st.connection = ConnectionState::Connected;
+                                                st.laptop_connected = true;
+                                                st.status_message = "Connected".into();
+                                            }
+                                            // ACK Hello immediately so the laptop leaves "waiting"
+                                            // even before the next keepalive tick (Wi‑Fi / firewall).
+                                            if frame.header.frame_type == FrameType::Hello {
+                                                let peer = *peer_slot.read();
+                                                if let Some(peer) = peer {
+                                                    let seq =
+                                                        tx_seq.fetch_add(1, Ordering::Relaxed);
+                                                    let reply = TunnelFrame::keepalive(
+                                                        seq,
+                                                        now_ms_lo(),
+                                                        1,
+                                                    );
+                                                    if let Ok(pkt) = reply.encode(crypto) {
+                                                        let _ = socket.send_to(&pkt, peer).await;
+                                                        stats.record_tx(pkt.len());
+                                                    }
+                                                }
+                                            }
                                         }
                                         FrameType::Goodbye => {
                                             info!("peer goodbye");
@@ -363,7 +384,12 @@ impl TunnelEngine {
                     opts.keepalive_interval_ms.max(200)
                 };
                 let interval = Duration::from_millis(probe_ms);
-                let timeout = Duration::from_millis(opts.peer_timeout_ms.max(1000));
+                let timeout = Duration::from_millis(if opts.role == "agent" {
+                    // Wi‑Fi sleep can starve RX for several seconds; don't flap to "waiting".
+                    opts.peer_timeout_ms.max(20_000)
+                } else {
+                    opts.peer_timeout_ms.max(1000)
+                });
                 let mut tick: u32 = 0;
                 while running.load(Ordering::SeqCst) {
                     tokio::time::sleep(interval).await;
@@ -376,6 +402,23 @@ impl TunnelEngine {
                         if let Ok(pkt) = frame.encode(opts.crypto.as_ref()) {
                             let _ = socket.send_to(&pkt, peer).await;
                             stats.record_tx(pkt.len());
+                        }
+                        // While still waiting, resend Hello so the desktop ACKs us.
+                        if opts.role == "agent"
+                            && tick % 5 == 1
+                            && !matches!(
+                                state.read().connection,
+                                ConnectionState::Connected
+                            )
+                        {
+                            let _ = send_hello(
+                                &socket,
+                                peer,
+                                &opts,
+                                &tx_seq,
+                                opts.crypto.as_ref(),
+                            )
+                            .await;
                         }
                     }
                     // Only the laptop agent owns local ENET link state (cached / non-blocking).
@@ -493,7 +536,7 @@ fn apply_control(state: &Arc<RwLock<GatewayState>>, role: &str, ctrl: ControlPay
         ControlPayload::Status {
             vehicle_link,
             vehicle_awake,
-            peer_connected,
+            peer_connected: _,
             rtt_ms,
             ..
         } => {
@@ -512,7 +555,11 @@ fn apply_control(state: &Arc<RwLock<GatewayState>>, role: &str, ctrl: ControlPay
             if role == "gateway" {
                 st.laptop_connected = true;
             } else {
-                st.laptop_connected = peer_connected;
+                // Receiving Status from the desktop means the tunnel is up — don't
+                // require peer_connected (gateway may still be catching up).
+                st.laptop_connected = true;
+                st.connection = ConnectionState::Connected;
+                st.status_message = "Connected".into();
             }
         }
         ControlPayload::Hello { hostname, role, .. } => {

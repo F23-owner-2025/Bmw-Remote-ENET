@@ -120,7 +120,7 @@ pub fn run_install(
 
     #[cfg(windows)]
     {
-        configure_firewall(req.role, progress)?;
+        configure_firewall(req.role, &install_dir, progress)?;
         // Remove any broken SCM service from older Setup builds (error 87).
         remove_legacy_scm_service(req.role, progress);
         if req.start_service {
@@ -242,13 +242,13 @@ fn read_pair_code(path: &Path) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn configure_firewall(role: Role, progress: &ProgressFn) -> Result<()> {
+fn configure_firewall(role: Role, install_dir: &Path, progress: &ProgressFn) -> Result<()> {
     progress(0, 0, "Configuring Windows Firewall...");
     let _ = Command::new("powershell")
         .args([
             "-NoProfile",
             "-Command",
-            "Get-NetFirewallRule -DisplayName 'BMW ENET Tunnel' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; Get-NetFirewallRule -DisplayName 'BMW ENET Discovery' -ErrorAction SilentlyContinue | Remove-NetFirewallRule",
+            "Get-NetFirewallRule -DisplayName 'BMW ENET Tunnel' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; Get-NetFirewallRule -DisplayName 'BMW ENET Discovery' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; Get-NetFirewallRule -DisplayName 'BMW ENET Client' -ErrorAction SilentlyContinue | Remove-NetFirewallRule",
         ])
         .status();
 
@@ -259,6 +259,15 @@ fn configure_firewall(role: Role, progress: &ProgressFn) -> Result<()> {
                 "-Command",
                 "New-NetFirewallRule -DisplayName 'BMW ENET Tunnel' -Direction Inbound -Protocol UDP -LocalPort 47900 -Action Allow -Profile Any | Out-Null; New-NetFirewallRule -DisplayName 'BMW ENET Discovery' -Direction Inbound -Protocol UDP -LocalPort 47902 -Action Allow -Profile Any | Out-Null",
             ])
+            .status();
+    } else {
+        let exe = install_dir.join("enet-agent.exe");
+        let script = format!(
+            "New-NetFirewallRule -DisplayName 'BMW ENET Client' -Direction Inbound -Program '{}' -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null",
+            exe.display().to_string().replace('\'', "''")
+        );
+        let _ = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &script])
             .status();
     }
     Ok(())
