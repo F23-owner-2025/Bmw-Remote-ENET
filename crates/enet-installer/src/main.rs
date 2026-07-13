@@ -23,6 +23,9 @@ struct Args {
     role: Option<String>,
     #[arg(long, default_value = "")]
     pair_code: String,
+    /// Desktop Host LAN IP (Client installs)
+    #[arg(long, default_value = "")]
+    peer: String,
     #[arg(long, default_value = "")]
     password: String,
 }
@@ -51,6 +54,7 @@ struct SetupApp {
     step: Step,
     role: Role,
     pair_code: String,
+    peer: String,
     password: String,
     start_service: bool,
     open_dashboard: bool,
@@ -70,6 +74,7 @@ impl SetupApp {
             step: Step::Welcome,
             role: Role::Host,
             pair_code: String::new(),
+            peer: String::new(),
             password: String::new(),
             start_service: true,
             open_dashboard: true,
@@ -102,6 +107,7 @@ impl SetupApp {
         let req = InstallRequest {
             role,
             pair_code: self.pair_code.clone(),
+            peer: self.peer.clone(),
             password: self.password.clone(),
             start_service: self.start_service,
             open_dashboard: self.open_dashboard,
@@ -149,7 +155,9 @@ impl SetupApp {
                             );
                         } else {
                             summary.push_str(
-                                "\nNext: plug ENET into the car, ignition ON, wait for green lights on the desktop dashboard.\n",
+                                "\nNext: open http://127.0.0.1:47903/ if Desktop is Waiting,\n\
+                                 enter the desktop LAN IP from http://127.0.0.1:47901/, click Connect.\n\
+                                 Then plug ENET into the car and turn ignition ON.\n",
                             );
                         }
                         p.result_summary = summary;
@@ -260,7 +268,12 @@ impl eframe::App for SetupApp {
                     ui.add_space(8.0);
 
                     if self.role == Role::Client {
-                        ui.label("Pair code from the Host dashboard (optional — leave blank to auto-find on LAN):");
+                        ui.label("Desktop LAN IP from the Host dashboard (recommended):");
+                        ui.text_edit_singleline(&mut self.peer);
+                        ui.small("Open http://127.0.0.1:47901/ on the desktop and copy a LAN IP.");
+                        ui.small("If you skip this, you can enter it later on the laptop status page.");
+                        ui.add_space(6.0);
+                        ui.label("Pair code from the Host dashboard (optional):");
                         ui.text_edit_singleline(&mut self.pair_code);
                         ui.add_space(6.0);
                     }
@@ -277,6 +290,11 @@ impl eframe::App for SetupApp {
                         ui.checkbox(
                             &mut self.open_dashboard,
                             "Open dashboard when finished (http://127.0.0.1:47901/)",
+                        );
+                    } else {
+                        ui.checkbox(
+                            &mut self.open_dashboard,
+                            "Open Client status when finished (http://127.0.0.1:47903/)",
                         );
                     }
 
@@ -396,6 +414,7 @@ fn main() -> eframe::Result<()> {
                     &InstallRequest {
                         role,
                         pair_code: args.pair_code,
+                        peer: args.peer,
                         password: args.password,
                         start_service: true,
                         open_dashboard: role == Role::Host,
@@ -420,8 +439,8 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([560.0, 420.0])
-            .with_min_inner_size([480.0, 360.0])
+            .with_inner_size([560.0, 480.0])
+            .with_min_inner_size([480.0, 400.0])
             .with_title("BMW ENET Gateway Setup"),
         ..Default::default()
     };

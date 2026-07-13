@@ -63,6 +63,71 @@
     font-size: 0.9rem;
     line-height: 1.5;
   }
+  .connect {
+    margin-top: 1rem;
+    max-width: 520px;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card);
+  }
+  .connect h2 {
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+  }
+  .connect p {
+    margin: 0 0 0.85rem;
+    color: var(--muted);
+    font-size: 0.88rem;
+    line-height: 1.45;
+  }
+  .connect label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+  }
+  .connect .field { margin-bottom: 0.75rem; }
+  .connect input {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #12161c;
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  .connect input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .actions {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  button {
+    border: none;
+    border-radius: 8px;
+    padding: 0.55rem 1rem;
+    font-weight: 650;
+    cursor: pointer;
+    background: var(--accent);
+    color: #061018;
+  }
+  button:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .msg {
+    margin-top: 0.65rem;
+    font-size: 0.88rem;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+  .msg.ok { color: var(--ok); }
+  .msg.err { color: #e07070; }
   .hint {
     margin-top: 1.25rem;
     max-width: 520px;
@@ -75,6 +140,7 @@
   }
   .hint strong { color: var(--accent); }
   code { font-family: Consolas, monospace; font-size: 0.82rem; color: var(--text); }
+  .connect.hidden { display: none; }
 </style>
 </head>
 <body>
@@ -104,8 +170,31 @@
     </div>
   </div>
   <div class="metrics" id="metrics"></div>
+
+  <div class="connect" id="connect-box">
+    <h2>Connect to desktop</h2>
+    <p>
+      On the desktop open <code>http://127.0.0.1:47901/</code> and copy the LAN IP
+      (use the one that works on your network — often not the first listed).
+      Enter it once here. It is saved for next boot — no PowerShell needed.
+    </p>
+    <div class="field">
+      <label for="peer">Desktop IP</label>
+      <input id="peer" type="text" inputmode="decimal" placeholder="192.168.1.187" autocomplete="off"/>
+    </div>
+    <div class="field">
+      <label for="pair">Pair code (optional)</label>
+      <input id="pair" type="text" placeholder="BMW-XXXX" autocomplete="off"/>
+    </div>
+    <div class="actions">
+      <button id="btn-connect" type="button">Connect</button>
+      <span id="saved-peer" class="detail"></span>
+    </div>
+    <div class="msg" id="connect-msg"></div>
+  </div>
+
   <div class="hint">
-    <strong>Tomorrow’s test:</strong> plug ENET into the car + laptop, turn ignition ON.
+    <strong>Car test:</strong> plug ENET into the car + laptop, turn ignition ON.
     ENET cable turns green when the USB/Ethernet adapter link is up.
     Vehicle awake needs car traffic (Npcap for full ISTA forwarding).
   </div>
@@ -114,6 +203,9 @@ function setBadge(el, text, kind) {
   el.textContent = text;
   el.className = 'badge ' + kind;
 }
+
+let lastConfigured = '';
+
 async function refresh() {
   try {
     const s = await fetch('/api/status').then(r => r.json());
@@ -124,7 +216,9 @@ async function refresh() {
     setBadge(document.getElementById('desk-b'), desk ? 'CONNECTED' : 'WAITING', desk ? 'ok' : 'off');
     document.getElementById('desk-d').textContent = desk
       ? (s.desktop_peer || 'Tunnel up')
-      : 'Waiting for Host on the desktop';
+      : (s.configured_peer
+          ? ('Dialing ' + s.configured_peer + '…')
+          : 'Enter desktop IP below');
 
     const enet = !!s.enet_link;
     setBadge(document.getElementById('enet-b'), enet ? 'PLUGGED' : 'UNPLUGGED', enet ? 'ok' : 'off');
@@ -142,10 +236,68 @@ async function refresh() {
     const loss = ((s.loss_rate || 0) * 100).toFixed(2);
     document.getElementById('metrics').textContent =
       'RTT ' + rtt + ' ms · loss ' + loss + '% · ' + (s.friendly || '');
+
+    const peerInput = document.getElementById('peer');
+    const pairInput = document.getElementById('pair');
+    if (s.configured_peer && s.configured_peer !== lastConfigured && !peerInput.matches(':focus')) {
+      peerInput.value = s.configured_peer;
+      lastConfigured = s.configured_peer;
+    }
+    if (s.pair_code && !pairInput.matches(':focus') && !pairInput.value) {
+      pairInput.value = s.pair_code;
+    }
+    document.getElementById('saved-peer').textContent = s.configured_peer
+      ? ('Saved: ' + s.configured_peer)
+      : '';
+    // Keep the form visible so the IP can be changed without PowerShell.
+    document.getElementById('connect-box').classList.toggle('hidden', false);
   } catch (e) {
     document.getElementById('sub').textContent = 'Status unavailable — is enet-agent running?';
   }
 }
+
+async function connect() {
+  const btn = document.getElementById('btn-connect');
+  const msg = document.getElementById('connect-msg');
+  const peer = document.getElementById('peer').value.trim();
+  const pair_code = document.getElementById('pair').value.trim();
+  if (!peer) {
+    msg.textContent = 'Enter the desktop LAN IP from http://127.0.0.1:47901/';
+    msg.className = 'msg err';
+    return;
+  }
+  btn.disabled = true;
+  msg.textContent = 'Saving and connecting…';
+  msg.className = 'msg';
+  try {
+    const r = await fetch('/api/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peer, pair_code: pair_code || null }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+      msg.textContent = j.message || ('Connect failed (' + r.status + ')');
+      msg.className = 'msg err';
+    } else {
+      msg.textContent = j.message || 'Saved — dialing desktop…';
+      msg.className = 'msg ok';
+      lastConfigured = peer;
+      document.getElementById('saved-peer').textContent = 'Saved: ' + peer;
+    }
+  } catch (e) {
+    msg.textContent = 'Could not reach agent: ' + e;
+    msg.className = 'msg err';
+  } finally {
+    btn.disabled = false;
+    refresh();
+  }
+}
+
+document.getElementById('btn-connect').addEventListener('click', connect);
+document.getElementById('peer').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') connect();
+});
 refresh();
 setInterval(refresh, 1000);
 </script>

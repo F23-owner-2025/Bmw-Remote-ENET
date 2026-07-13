@@ -315,9 +315,15 @@ impl GatewayConfig {
                 hints.push("3. Laptop dials that WG IP after its tunnel is up.".into());
             }
             (Role::Agent, NetworkMode::Lan) => {
-                hints.push("Mode: Same network — auto-discover desktop.".into());
-                hints.push("1. Same Wi‑Fi/Ethernet as the desktop.".into());
-                hints.push("2. Start enet-agent (optional pair code).".into());
+                hints.push("Mode: Same network.".into());
+                if let Some(peer) = self.peer_addr {
+                    hints.push(format!("1. Dialing desktop at {peer}."));
+                } else {
+                    hints.push(
+                        "1. Open http://127.0.0.1:47903/ → enter Desktop LAN IP → Connect.".into(),
+                    );
+                }
+                hints.push("2. Same router as the desktop (not Guest Wi‑Fi).".into());
                 hints.push("3. Plug ENET into car + this laptop.".into());
             }
             (Role::Agent, NetworkMode::Relay) => {

@@ -184,8 +184,8 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("  Relay:      {}", cfg.relay_url);
             eprintln!("  Laptop must use the same relay + pair code.");
         } else {
-            eprintln!("  Laptop: same Wi‑Fi OR Wi‑Fi laptop + wired desktop:");
-            eprintln!("    enet-agent --peer <this-PC-LAN-IP> --pair-code {pair_code}");
+            eprintln!("  Laptop: open http://127.0.0.1:47903/ → Desktop IP → Connect");
+            eprintln!("    (pair code {pair_code}; use a LAN IP from this dashboard)");
         }
         eprintln!();
         for hint in cfg.setup_hints() {
@@ -503,8 +503,8 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
         .cloned()
         .unwrap_or_else(|| "DESKTOP_IP".into());
     let connect_command = format!(
-        ".\\enet-agent.exe --config config\\agent.toml --pair-code {} --peer {}",
-        cfg.pair_code, primary_ip
+        "On laptop http://127.0.0.1:47903/ → Desktop IP {} → Connect (pair {})",
+        primary_ip, cfg.pair_code
     );
     let mut setup_hints = cfg.setup_hints();
     if !cfg.network_mode.is_remote()
@@ -512,10 +512,13 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
         && !matches!(gateway_state.connection, ConnectionState::Connected)
     {
         setup_hints.push(format!(
-            "Wi‑Fi laptop + wired desktop? Auto-discover often fails. On the laptop run: {connect_command}"
+            "Wi‑Fi laptop + wired desktop? On the laptop open http://127.0.0.1:47903/, enter Desktop IP {primary_ip}, click Connect."
         ));
         if lan_ips.len() > 1 {
-            setup_hints.push(format!("This PC LAN IPs: {}", lan_ips.join(", ")));
+            setup_hints.push(format!(
+                "This PC has multiple LAN IPs — try each if needed: {}",
+                lan_ips.join(", ")
+            ));
         }
         setup_hints.push(
             "Also match passwords on both PCs (or clear password on both), and use the exact pair code above."

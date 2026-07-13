@@ -287,11 +287,11 @@
 
       <div class="peer-box" id="peer-box" style="display:none">
         <div class="title">Laptop on Wi‑Fi, desktop on Ethernet?</div>
-        <p class="muted">Auto-discover often fails across Wi‑Fi ↔ wired. On the laptop PowerShell (as Admin), stop the agent and run this with the exact pair code:</p>
+        <p class="muted">Auto-discover often fails across Wi‑Fi ↔ wired. On the laptop open <code>http://127.0.0.1:47903/</code>, enter one of the LAN IPs below, and click <strong>Connect</strong> (saved for next boot — no PowerShell).</p>
         <code id="peer-cmd">—</code>
         <div class="ips" id="peer-ips"></div>
         <div class="actions" style="margin-top:0.65rem">
-          <button class="primary" onclick="copyPeerCmd()">Copy command</button>
+          <button class="primary" onclick="copyPeerCmd()">Copy desktop IP hint</button>
         </div>
       </div>
 
@@ -407,8 +407,8 @@ function renderStatus(s) {
   document.getElementById('lap-detail').textContent = lap
     ? ((s.network_mode_label || 'LAN') + (peer ? (' · ' + peer) : ''))
     : (lanIps.length
-      ? ('Waiting · desktop LAN IP ' + lanIps[0] + ' — use --peer on Wi‑Fi laptop')
-      : 'Open Agent on the laptop and use this pair code');
+      ? ('Waiting · laptop: open :47903 → enter ' + lanIps[0] + ' → Connect')
+      : 'Open Client status on the laptop and Connect with this pair code');
 
   const peerBox = document.getElementById('peer-box');
   if (!lap && s.connect_command) {
