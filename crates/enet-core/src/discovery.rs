@@ -107,7 +107,7 @@ pub fn adapter_link_up(name: &str) -> bool {
     if name.is_empty() || name == "pending-enet" {
         return false;
     }
-    // Cache PowerShell / sysfs probes — status UI polls ~1 Hz.
+    // Cache probes — never spam the OS every UI tick.
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
     struct Cache {
@@ -118,7 +118,7 @@ pub fn adapter_link_up(name: &str) -> bool {
     static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
     if let Ok(guard) = CACHE.lock() {
         if let Some(c) = guard.as_ref() {
-            if c.name.eq_ignore_ascii_case(name) && c.at.elapsed() < Duration::from_secs(3) {
+            if c.name.eq_ignore_ascii_case(name) && c.at.elapsed() < Duration::from_secs(5) {
                 return c.up;
             }
         }
@@ -137,12 +137,41 @@ pub fn adapter_link_up(name: &str) -> bool {
 fn adapter_link_up_uncached(name: &str) -> bool {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+        /// Hide console windows — visible PowerShell flashing every few seconds is unusable.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+        // Prefer netsh (no PowerShell host window).
+        let name_arg = format!("name=\"{name}\"");
+        if let Ok(out) = Command::new("netsh")
+            .args(["interface", "show", "interface", &name_arg])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        {
+            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            if let Some(line) = text.lines().find(|l| l.contains("connect state")) {
+                // Exact token check — "disconnected" also contains "connected".
+                let state = line.split(':').nth(1).unwrap_or("").trim();
+                return state == "connected";
+            }
+        }
+
+        // Fallback: PowerShell, forced hidden.
         let script = format!(
             "$a = Get-NetAdapter -Name '{}' -ErrorAction SilentlyContinue; if ($null -eq $a) {{ exit 2 }}; if ($a.Status -eq 'Up') {{ exit 0 }} else {{ exit 1 }}",
             name.replace('\'', "''")
         );
-        match std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &script])
+        match Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                &script,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
             .status()
         {
             Ok(s) if s.success() => return true,

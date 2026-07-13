@@ -423,7 +423,7 @@ fn spawn_enet_link_refresher(enet_name: Arc<RwLock<String>>, enet_link: Arc<Atom
                     .unwrap_or(false);
                 enet_link.store(up, Ordering::Relaxed);
             }
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
 }

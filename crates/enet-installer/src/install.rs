@@ -305,6 +305,27 @@ fn install_autostart(
     if role == Role::Client && !pair_code.trim().is_empty() {
         args.push_str(&format!(" --pair-code {}", pair_code.trim()));
     }
+    // If agent.toml already has peer_addr (saved from a prior --peer), bake it into the task
+    // so auto-start works across Wi‑Fi↔wired without discovery.
+    if role == Role::Client {
+        if let Ok(text) = fs::read_to_string(config_path) {
+            for line in text.lines() {
+                let line = line.trim();
+                if let Some(rest) = line.strip_prefix("peer_addr") {
+                    let v = rest
+                        .trim()
+                        .trim_start_matches('=')
+                        .trim()
+                        .trim_matches('"')
+                        .trim();
+                    if !v.is_empty() && v != "null" {
+                        args.push_str(&format!(" --peer {v}"));
+                    }
+                    break;
+                }
+            }
+        }
+    }
 
     let task_name = match role {
         Role::Host => "BMW-ENET-Host",
