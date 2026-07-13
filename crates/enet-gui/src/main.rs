@@ -303,7 +303,7 @@ impl eframe::App for GatewayApp {
                     ui.label("5. Flash only if Flash safety says SAFE.");
                     ui.add_space(8.0);
                     ui.label("Buttons: Start/Stop/Restart control the tunnel · Settings = port/password · Export Logs = troubleshooting.");
-                    ui.label("Full guide in the repo: docs/HOW_TO_USE.md");
+                    ui.label("Full guide: README.md and docs/HOW_TO_USE.md");
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.button("I finished setup").clicked() {

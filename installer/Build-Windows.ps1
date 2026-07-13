@@ -93,13 +93,12 @@ foreach ($bin in $bins) {
 
 Write-Host ""
 Write-Host "Build complete." -ForegroundColor Green
-Write-Host "End users: double-click BMW-ENET-Setup.exe and choose Host or Client."
-Write-Host "This Setup.exe has packages built in (works offline / private GitHub repos)."
+Write-Host "Run BMW-ENET-Setup.exe and choose Host or Client."
+Write-Host "Packages are embedded (works offline / private GitHub repos)."
 Write-Host ""
 
-if ($InstallDesktop) {
-  & (Join-Path $here "Setup-Gateway.ps1")
+if ($InstallDesktop -or $InstallLaptop) {
+  Write-Host "Note: -InstallDesktop / -InstallLaptop are obsolete." -ForegroundColor Yellow
+  Write-Host "Run .\installer\BMW-ENET-Setup.exe instead."
 }
-if ($InstallLaptop) {
-  & (Join-Path $here "Setup-Agent.ps1")
-}
+
