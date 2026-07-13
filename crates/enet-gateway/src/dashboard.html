@@ -375,15 +375,17 @@ function renderStatus(s) {
     ? ((s.network_mode_label || 'LAN') + (peer ? (' · ' + peer) : ''))
     : 'Open Agent on the laptop and use this pair code';
 
-  const link = !!(s.state && s.state.vehicle && s.state.vehicle.link_up);
+  const link = lap && !!(s.state && s.state.vehicle && s.state.vehicle.link_up);
   const vip = (s.state && s.state.vehicle && s.state.vehicle.discovered_ip) || '';
   const vin = (s.state && s.state.vehicle && s.state.vehicle.vin) || '';
   setBadge(document.getElementById('veh-badge'), link ? 'CONNECTED' : 'DOWN', link ? 'ok' : 'off');
-  document.getElementById('veh-detail').textContent = link
-    ? ('Link up' + (vip ? (' · ' + vip) : '') + (vin ? (' · VIN ' + vin) : ''))
-    : 'Plug ENET into car + laptop';
+  document.getElementById('veh-detail').textContent = !lap
+    ? 'Waiting for laptop first'
+    : (link
+      ? ('Link up' + (vip ? (' · ' + vip) : '') + (vin ? (' · VIN ' + vin) : ''))
+      : 'Plug ENET into car + laptop');
 
-  const awake = !!(s.state && s.state.vehicle && s.state.vehicle.awake);
+  const awake = lap && !!(s.state && s.state.vehicle && s.state.vehicle.awake);
   setBadge(document.getElementById('awk-badge'), awake ? 'AWAKE' : 'SLEEP', awake ? 'warn' : 'off');
   document.getElementById('awk-detail').textContent = awake ? 'Vehicle answering diagnostics' : 'Turn ignition ON / wake the car';
 

@@ -137,6 +137,7 @@ impl TunnelEngine {
             let tx_seq = tx_seq.clone();
             let state = self.state.clone();
             let running = running.clone();
+            let is_agent = self.opts.role == "agent";
             tokio::spawn(async move {
                 while running.load(Ordering::SeqCst) {
                     match eth.recv().await {
@@ -152,10 +153,13 @@ impl TunnelEngine {
                                             warn!(error = %e, "udp send failed");
                                         } else {
                                             stats.record_tx(pkt.len());
-                                            let mut st = state.write();
-                                            st.vehicle.last_activity_ms = now_ms();
-                                            st.vehicle.awake = true;
-                                            st.vehicle.link_up = true;
+                                            // Car-side evidence only on the agent. Gateway local TAP is tools.
+                                            if is_agent {
+                                                let mut st = state.write();
+                                                st.vehicle.last_activity_ms = now_ms();
+                                                st.vehicle.awake = true;
+                                                st.vehicle.link_up = true;
+                                            }
                                         }
                                     }
                                     Err(e) => {
@@ -231,12 +235,16 @@ impl TunnelEngine {
                                                 stats.record_error();
                                                 warn!(error = %e, "ethernet inject failed");
                                             } else {
-                                                let link = eth.link_up().await;
                                                 let mut st = state.write();
                                                 st.connection = ConnectionState::Connected;
                                                 st.laptop_connected = true;
                                                 st.status_message = "Connected".into();
-                                                st.vehicle.link_up = link;
+                                                // Gateway: tunnel Ethernet arrived from the car via the laptop.
+                                                if opts.role == "gateway" {
+                                                    st.vehicle.link_up = true;
+                                                    st.vehicle.last_activity_ms = now_ms();
+                                                    st.vehicle.awake = true;
+                                                }
                                             }
                                         }
                                         FrameType::Keepalive => {
@@ -274,7 +282,7 @@ impl TunnelEngine {
                                                 ControlPayload::from_bytes(&frame.payload)
                                             {
                                                 debug!(?ctrl, "control payload");
-                                                apply_control(&state, ctrl);
+                                                apply_control(&state, &opts.role, ctrl);
                                             }
                                             let mut st = state.write();
                                             st.connection = ConnectionState::Connected;
@@ -288,6 +296,10 @@ impl TunnelEngine {
                                             st.laptop_connected = false;
                                             st.status_message = "Peer disconnected".into();
                                             st.peer_endpoint = None;
+                                            if opts.role == "gateway" {
+                                                st.vehicle.link_up = false;
+                                                st.vehicle.awake = false;
+                                            }
                                         }
                                         FrameType::Ack => {}
                                     }
@@ -323,8 +335,10 @@ impl TunnelEngine {
                 let timeout = Duration::from_millis(opts.peer_timeout_ms.max(1000));
                 while running.load(Ordering::SeqCst) {
                     tokio::time::sleep(interval).await;
-                    let link = eth.link_up().await;
-                    {
+                    // Only the laptop agent owns local ENET link state.
+                    // The desktop gateway must not treat its virtual TAP as the car.
+                    if opts.role == "agent" {
+                        let link = eth.link_up().await;
                         let mut st = state.write();
                         st.vehicle.link_up = link;
                         if !link {
@@ -342,8 +356,16 @@ impl TunnelEngine {
                         let snap = stats.snapshot();
                         let st = state.read().clone();
                         let status = ControlPayload::Status {
-                            vehicle_link: st.vehicle.link_up,
-                            vehicle_awake: st.vehicle.awake,
+                            vehicle_link: if opts.role == "agent" {
+                                st.vehicle.link_up
+                            } else {
+                                false
+                            },
+                            vehicle_awake: if opts.role == "agent" {
+                                st.vehicle.awake
+                            } else {
+                                false
+                            },
                             peer_connected: matches!(st.connection, ConnectionState::Connected),
                             packets_tx: snap.tx_packets,
                             packets_rx: snap.rx_packets,
@@ -371,6 +393,10 @@ impl TunnelEngine {
                         st.laptop_connected = false;
                         st.status_message = "Peer timeout — reconnecting".into();
                         st.peer_endpoint = None;
+                        if opts.role == "gateway" {
+                            st.vehicle.link_up = false;
+                            st.vehicle.awake = false;
+                        }
                         drop(st);
                         if opts.peer.is_none() {
                             *peer_slot.write() = None;
@@ -422,7 +448,7 @@ async fn send_hello(
     Ok(())
 }
 
-fn apply_control(state: &Arc<RwLock<GatewayState>>, ctrl: ControlPayload) {
+fn apply_control(state: &Arc<RwLock<GatewayState>>, role: &str, ctrl: ControlPayload) {
     let mut st = state.write();
     match ctrl {
         ControlPayload::Status {
@@ -431,9 +457,19 @@ fn apply_control(state: &Arc<RwLock<GatewayState>>, ctrl: ControlPayload) {
             peer_connected,
             ..
         } => {
-            st.vehicle.link_up = vehicle_link;
-            st.vehicle.awake = vehicle_awake;
-            st.laptop_connected = peer_connected;
+            // Laptop agent is the authority for vehicle ENET / awake.
+            // Gateway accepts those fields; agent ignores the desktop's (often false) vehicle flags.
+            if role == "gateway" {
+                st.vehicle.link_up = vehicle_link;
+                st.vehicle.awake = vehicle_awake;
+            }
+            // peer_connected in Status is "what the sender thinks"; for gateway the
+            // presence of Status from the agent already means the laptop is up.
+            if role == "gateway" {
+                st.laptop_connected = true;
+            } else {
+                st.laptop_connected = peer_connected;
+            }
         }
         ControlPayload::Hello { hostname, role, .. } => {
             st.status_message = format!("Hello from {role}@{hostname}");

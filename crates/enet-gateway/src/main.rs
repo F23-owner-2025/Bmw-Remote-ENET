@@ -441,6 +441,13 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
         }
     };
     gateway_state.gateway_running = state.handle.read().is_some();
+    // Vehicle indicators require a connected laptop; never show car link from the desktop TAP alone.
+    if !gateway_state.laptop_connected
+        && !matches!(gateway_state.connection, ConnectionState::Connected)
+    {
+        gateway_state.vehicle.link_up = false;
+        gateway_state.vehicle.awake = false;
+    }
 
     let (cpu_pct, memory_used, memory_total) = {
         let mut health = state.health.write();

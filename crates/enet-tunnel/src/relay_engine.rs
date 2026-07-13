@@ -110,6 +110,7 @@ impl RelayTunnelEngine {
             let state = self.state.clone();
             let running = running.clone();
             let tx_seq = tx_seq.clone();
+            let is_agent = self.opts.base.role == "agent";
             tokio::spawn(async move {
                 while running.load(Ordering::SeqCst) {
                     match eth.recv().await {
@@ -125,10 +126,12 @@ impl RelayTunnelEngine {
                                             break;
                                         }
                                         stats.record_tx(pkt.len());
-                                        let mut st = state.write();
-                                        st.vehicle.awake = true;
-                                        st.vehicle.link_up = true;
-                                        st.vehicle.last_activity_ms = now_ms();
+                                        if is_agent {
+                                            let mut st = state.write();
+                                            st.vehicle.awake = true;
+                                            st.vehicle.link_up = true;
+                                            st.vehicle.last_activity_ms = now_ms();
+                                        }
                                     }
                                     Err(e) => {
                                         stats.record_error();
@@ -181,13 +184,17 @@ impl RelayTunnelEngine {
                                         stats.record_error();
                                         warn!(error = %e, "ethernet inject failed");
                                     } else {
-                                        let link = eth.link_up().await;
                                         let mut st = state.write();
                                         st.connection = ConnectionState::Connected;
                                         st.laptop_connected = true;
                                         st.status_message = "Connected via relay".into();
                                         st.peer_endpoint = Some(format!("relay:{relay_url}"));
-                                        st.vehicle.link_up = link;
+                                        // Tunnel Ethernet on the gateway means car-side traffic via laptop.
+                                        if opts.role == "gateway" {
+                                            st.vehicle.link_up = true;
+                                            st.vehicle.last_activity_ms = now_ms();
+                                            st.vehicle.awake = true;
+                                        }
                                     }
                                 }
                                 FrameType::Keepalive => {
@@ -203,13 +210,14 @@ impl RelayTunnelEngine {
                                         if let ControlPayload::Status {
                                             vehicle_link,
                                             vehicle_awake,
-                                            peer_connected,
                                             ..
                                         } = ctrl
                                         {
-                                            st.vehicle.link_up = vehicle_link;
-                                            st.vehicle.awake = vehicle_awake;
-                                            st.laptop_connected = peer_connected;
+                                            if opts.role == "gateway" {
+                                                st.vehicle.link_up = vehicle_link;
+                                                st.vehicle.awake = vehicle_awake;
+                                            }
+                                            st.laptop_connected = true;
                                         }
                                         st.connection = ConnectionState::Connected;
                                         st.status_message = "Connected via relay".into();
@@ -221,6 +229,10 @@ impl RelayTunnelEngine {
                                     st.connection = ConnectionState::Reconnecting;
                                     st.laptop_connected = false;
                                     st.peer_endpoint = None;
+                                    if opts.role == "gateway" {
+                                        st.vehicle.link_up = false;
+                                        st.vehicle.awake = false;
+                                    }
                                 }
                                 FrameType::Ack => {}
                             }
@@ -246,10 +258,13 @@ impl RelayTunnelEngine {
                 let interval = Duration::from_millis(opts.keepalive_interval_ms.max(500));
                 while running.load(Ordering::SeqCst) {
                     tokio::time::sleep(interval).await;
-                    let link = eth.link_up().await;
-                    {
+                    if opts.role == "agent" {
+                        let link = eth.link_up().await;
                         let mut st = state.write();
                         st.vehicle.link_up = link;
+                        if !link {
+                            st.vehicle.awake = false;
+                        }
                     }
                     let seq = tx_seq.fetch_add(1, Ordering::Relaxed);
                     let frame = TunnelFrame::keepalive(seq, now_ms_lo(), 0);
