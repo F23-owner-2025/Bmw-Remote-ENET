@@ -13,6 +13,8 @@ End users should **not** build from source. Download **`BMW-ENET-Setup.exe`** fr
 
 This builds the role binaries and a self-contained **`BMW-ENET-Setup.exe`** (Host/Client packages embedded).
 
+Windows release builds static-link the MSVC CRT (`+crt-static`) so end users do not need `VCRUNTIME140.dll`.
+
 ## Build / test on Linux (CI)
 
 ```bash

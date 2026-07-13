@@ -95,6 +95,7 @@ Never flash over flaky Wi‑Fi or a high-latency relay.
 | Only have a source ZIP | Download Setup from Releases (do not use the source ZIP alone) |
 | Laptop never connects | Same Wi‑Fi? Pair code correct? Client installed? |
 | Vehicle never awake | Reseat ENET, ignition ON, wait 10–20 seconds |
+| Setup: `VCRUNTIME140.dll` not found | Install [VC++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe), or use Setup **v0.1.5+** |
 | ISTA cannot find the car | Wait until UI is fully green; use `169.254.1.1` on `BMW-ENET` |
 | Flash safety red | Use Ethernet or WireGuard; avoid hotel Wi‑Fi |
 

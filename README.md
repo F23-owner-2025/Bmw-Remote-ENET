@@ -30,6 +30,15 @@ Files install under `C:\BMW-ENET\Host` or `C:\BMW-ENET\Client`.
 
 Do the same Setup.exe on both PCs (Host on one, Client on the other).
 
+### If Setup says `VCRUNTIME140.dll` was not found
+
+Install the **Microsoft Visual C++ Redistributable (x64)** once:
+
+https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+Then run `BMW-ENET-Setup.exe` again.  
+(Newer releases from **v0.1.5+** bundle this runtime and should not need the redistributable.)
+
 ### Uninstall
 
 Download the source or copy `installer/uninstall.bat`, then run it as Administrator.

@@ -27,6 +27,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build role binaries
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: |
           cargo build --release `
             -p enet-setup `
@@ -57,6 +59,8 @@ jobs:
           Copy-Item dist/BMW-ENET-Client-windows-x64.zip crates/enet-installer/embedded/ -Force
 
       - name: Build self-contained Setup wizard
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: cargo build --release -p enet-installer --features embed
 
       - name: Stage release files

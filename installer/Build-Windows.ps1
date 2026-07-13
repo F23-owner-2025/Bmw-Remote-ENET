@@ -40,6 +40,7 @@ if (-not $SkipGui) {
 }
 
 Write-Host "Building release binaries (this may take a few minutes)..."
+$env:RUSTFLAGS = "-C target-feature=+crt-static"
 & cargo build --release @packages
 if ($LASTEXITCODE -ne 0) {
   Write-Host "Build failed." -ForegroundColor Red
@@ -70,6 +71,7 @@ Remove-Item -Recurse -Force $hostDir, $clientDir -ErrorAction SilentlyContinue
 Write-Host "  OK  Host/Client packages staged for embed"
 
 Write-Host "Building self-contained setup wizard (BMW-ENET-Setup.exe)..."
+$env:RUSTFLAGS = "-C target-feature=+crt-static"
 & cargo build --release -p enet-installer --features embed
 if ($LASTEXITCODE -ne 0) {
   Write-Host "Installer build failed." -ForegroundColor Red
