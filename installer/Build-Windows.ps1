@@ -46,8 +46,15 @@ if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
 
+Write-Host "Building setup wizard (BMW-ENET-Setup.exe)..."
+& cargo build --release -p enet-installer
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "Installer build failed." -ForegroundColor Red
+  exit $LASTEXITCODE
+}
+
 $releaseDir = Join-Path $repoRoot "target\release"
-$bins = @("enet-setup.exe", "enet-gateway.exe", "enet-agent.exe", "enet-relay.exe")
+$bins = @("enet-setup.exe", "enet-gateway.exe", "enet-agent.exe", "enet-relay.exe", "BMW-ENET-Setup.exe")
 if (-not $SkipGui) { $bins += "enet-gui.exe" }
 
 Write-Host ""
@@ -62,11 +69,27 @@ foreach ($bin in $bins) {
   }
 }
 
+# Offline packages the wizard can use without GitHub
+$hostDir = Join-Path $here "_host_pkg"
+$clientDir = Join-Path $here "_client_pkg"
+New-Item -ItemType Directory -Force -Path $hostDir | Out-Null
+New-Item -ItemType Directory -Force -Path $clientDir | Out-Null
+Copy-Item -Force (Join-Path $releaseDir "enet-gateway.exe") $hostDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $releaseDir "enet-setup.exe") $hostDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $releaseDir "enet-gui.exe") $hostDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $releaseDir "enet-agent.exe") $clientDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $releaseDir "enet-setup.exe") $clientDir -ErrorAction SilentlyContinue
+if (Get-Command Compress-Archive -ErrorAction SilentlyContinue) {
+  Compress-Archive -Path "$hostDir\*" -DestinationPath (Join-Path $here "BMW-ENET-Host-windows-x64.zip") -Force
+  Compress-Archive -Path "$clientDir\*" -DestinationPath (Join-Path $here "BMW-ENET-Client-windows-x64.zip") -Force
+  Write-Host "  OK  BMW-ENET-Host-windows-x64.zip / BMW-ENET-Client-windows-x64.zip"
+}
+Remove-Item -Recurse -Force $hostDir, $clientDir -ErrorAction SilentlyContinue
+
 Write-Host ""
 Write-Host "Build complete." -ForegroundColor Green
-Write-Host "Next:"
-Write-Host "  Desktop PC: right-click Install-Desktop.bat -> Run as administrator"
-Write-Host "  Laptop PC:  right-click Install-Laptop.bat  -> Run as administrator"
+Write-Host "End users: double-click BMW-ENET-Setup.exe and choose Host or Client."
+Write-Host "Legacy: Install-Desktop.bat / Install-Laptop.bat still work after this build."
 Write-Host ""
 
 if ($InstallDesktop) {

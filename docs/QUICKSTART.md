@@ -1,28 +1,26 @@
 # Quick Start (5 minutes)
 
-## Important: source zip has no `.exe` files
+## Windows — recommended
 
-If you downloaded this repo as a ZIP from GitHub, the installer alone cannot start the dashboard.
-You must **build once** on the PC (or copy pre-built `.exe` files into `installer\`).
+1. Download **`BMW-ENET-Setup.exe`** from [Releases](https://github.com/Ryan-duntley19/test/releases)
+2. On the **desktop**: run Setup → choose **Host (Desktop)** → Install  
+   Open **http://127.0.0.1:47901/** and copy the **pair code**
+3. On the **laptop**: run the **same** Setup.exe → choose **Client (Laptop)** → paste the pair code → Install
+4. Plug ENET → ignition ON → open ISTA/E-Sys when the dashboard is green
 
-1. Install **Rust**: https://rustup.rs (default options; open a **new** PowerShell after install)
-2. In `installer\`, right-click **`Build-Windows.ps1`** → **Run with PowerShell**  
-   (or double-click **`Install-Desktop.bat`** — it will build automatically if binaries are missing)
-3. Wait for the build to finish (first time can take several minutes)
+Details: **[SETUP_WIZARD.md](SETUP_WIZARD.md)**
+
+You do **not** need Rust or any `.bat` file.
 
 ---
 
-## Same Wi-Fi / Ethernet (easiest)
+## Same Wi-Fi / Ethernet
 
-You do **not** need to configure IP addresses.
+You do **not** need to configure IP addresses. Host + Client on the same LAN auto-discover via the pair code.
 
-1. Desktop: right-click **`Install-Desktop.bat`** → Run as administrator → note the **pair code**  
-2. Laptop: right-click **`Install-Laptop.bat`** → Run as administrator → paste code (or Enter)  
-3. Plug ENET → ignition ON → open ISTA/E-Sys when the dashboard is green  
+If the browser shows **connection refused** on `http://127.0.0.1:47901/`, the Host was not installed/started — run `BMW-ENET-Setup.exe` as Administrator and choose Host.
 
-If the browser shows **connection refused** on `http://127.0.0.1:47901/`, the gateway `.exe` was never installed/started — build first (steps above), then re-run the desktop installer.
-
-Details: [INSTALL.md](INSTALL.md)
+More install notes: [INSTALL.md](INSTALL.md)
 
 ---
 
@@ -68,5 +66,5 @@ Full walkthrough: **[HOW_TO_USE.md](HOW_TO_USE.md)**
 
 1. Desktop: open **http://127.0.0.1:47901/** or the **BMW ENET Gateway** app (`enet-gui`).
 2. Copy the **pair code**.
-3. Laptop: run the agent with that code.
+3. Laptop: Client already paired (or re-run Setup and enter the code).
 4. Plug ENET + ignition ON → wait for green lights → open ISTA/E-Sys on the desktop.

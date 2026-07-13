@@ -10,6 +10,7 @@ members = [
     "crates/enet-sim",
     "crates/enet-setup",
     "crates/enet-relay",
+    "crates/enet-installer",
 ]
 default-members = [
     "crates/enet-protocol",

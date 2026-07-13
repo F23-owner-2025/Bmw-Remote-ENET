@@ -144,10 +144,10 @@ For remote mode, set password on **both** desktop and laptop.
 
 | You see | Try this |
 |---------|----------|
-| Browser: connection refused on `:47901` | Binaries were not built/installed. Run `installer\Build-Windows.ps1`, then `Install-Desktop.bat` as Admin |
-| Installer: `enet-gateway.exe not found` | Same as above — GitHub ZIP has source only, no `.exe` |
-| GUI: “Gateway not reachable” | Start `enet-gateway` or re-run `Install-Desktop.bat` |
-| Laptop never connects | Same Wi‑Fi? Pair code correct? Agent running? |
+| Browser: connection refused on `:47901` | Run `BMW-ENET-Setup.exe` as Admin → choose **Host** |
+| No Setup.exe / only source ZIP | Download Setup from [Releases](https://github.com/Ryan-duntley19/test/releases) — do not use the source ZIP alone |
+| GUI: “Gateway not reachable” | Start Host service or re-run Setup → Host |
+| Laptop never connects | Same Wi‑Fi? Pair code correct? Client installed? |
 | Vehicle never awake | Reseat ENET, ignition ON, wait 10–20 seconds |
 | ISTA cannot find the car | Wait until UI is fully green; use `169.254.1.1` on `BMW-ENET` |
 | Flash safety red | Switch to Ethernet, or use WireGuard; avoid hotel Wi‑Fi |
