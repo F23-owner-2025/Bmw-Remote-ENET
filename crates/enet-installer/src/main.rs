@@ -246,6 +246,17 @@ fn role_card(ui: &mut egui::Ui, selected: bool, title: &str, lines: &[&str]) -> 
     resp.clicked()
 }
 
+/// Navigation actions collected while drawing the sticky footer.
+#[derive(Default)]
+struct NavAction {
+    back: bool,
+    continue_welcome: bool,
+    next_role: bool,
+    install: bool,
+    close: bool,
+    retry: bool,
+}
+
 impl eframe::App for SetupApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Poll worker
@@ -262,8 +273,103 @@ impl eframe::App for SetupApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
+        // Sticky footer — nav buttons always visible, even when content is tall.
+        let mut nav = NavAction::default();
+        egui::TopBottomPanel::bottom("wizard_footer")
+            .exact_height(56.0)
+            .frame(
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(22, 26, 32))
+                    .inner_margin(egui::Margin::symmetric(16.0, 10.0))
+                    .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(45, 52, 64))),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    match self.step {
+                        Step::Welcome => {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui
+                                    .add(
+                                        egui::Button::new(egui::RichText::new("Continue  →").strong())
+                                            .min_size([120.0, 32.0].into()),
+                                    )
+                                    .clicked()
+                                {
+                                    nav.continue_welcome = true;
+                                }
+                            });
+                        }
+                        Step::ChooseRole => {
+                            if ui.button("←  Back").clicked() {
+                                nav.back = true;
+                            }
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui
+                                    .add(
+                                        egui::Button::new(egui::RichText::new("Next  →").strong())
+                                            .min_size([100.0, 30.0].into()),
+                                    )
+                                    .clicked()
+                                {
+                                    nav.next_role = true;
+                                }
+                            });
+                        }
+                        Step::Options => {
+                            if ui.button("←  Back").clicked() {
+                                nav.back = true;
+                            }
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new("Install").strong().size(15.0),
+                                        )
+                                        .fill(egui::Color32::from_rgb(20, 120, 80))
+                                        .min_size([130.0, 34.0].into()),
+                                    )
+                                    .clicked()
+                                {
+                                    nav.install = true;
+                                }
+                            });
+                        }
+                        Step::Working => {
+                            ui.label(
+                                egui::RichText::new("Please wait…")
+                                    .size(13.0)
+                                    .color(egui::Color32::from_rgb(150, 162, 178)),
+                            );
+                        }
+                        Step::Done => {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui
+                                    .add(
+                                        egui::Button::new(egui::RichText::new("Close").strong())
+                                            .min_size([110.0, 30.0].into()),
+                                    )
+                                    .clicked()
+                                {
+                                    nav.close = true;
+                                }
+                            });
+                        }
+                        Step::Error => {
+                            if ui.button("←  Back").clicked() {
+                                nav.retry = true;
+                            }
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("Close").clicked() {
+                                    nav.close = true;
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add_space(10.0);
+            ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("BMW ENET Gateway Setup").heading().strong());
             });
@@ -276,239 +382,277 @@ impl eframe::App for SetupApp {
             step_header(ui, self.step);
             ui.add_space(6.0);
             ui.separator();
-            ui.add_space(10.0);
+            ui.add_space(8.0);
 
-            match self.step {
-                Step::Welcome => {
-                    ui.label("This wizard installs everything — no Rust, Git, or scripts needed.");
-                    ui.add_space(8.0);
-                    if download::has_embedded_packages() {
-                        ui.colored_label(
-                            OK_GREEN,
-                            "✔ Host and Client packages are built into this Setup.exe (works offline).",
-                        );
-                    } else {
-                        ui.label("Packages load from files next to Setup.exe, or download if the repo is public.");
-                    }
-                    match self.npcap_present {
-                        Some(true) => {
-                            ui.colored_label(OK_GREEN, "✔ Npcap detected — ISTA car traffic will work.");
+            // Scrollable body so tall steps never cover the footer buttons.
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .id_salt("wizard_body")
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    match self.step {
+                        Step::Welcome => {
+                            ui.label("This wizard installs everything — no Rust, Git, or scripts needed.");
+                            ui.add_space(8.0);
+                            if download::has_embedded_packages() {
+                                ui.colored_label(
+                                    OK_GREEN,
+                                    "✔ Host and Client packages are built into this Setup.exe (works offline).",
+                                );
+                            } else {
+                                ui.label(
+                                    "Packages load from files next to Setup.exe, or download if the repo is public.",
+                                );
+                            }
+                            match self.npcap_present {
+                                Some(true) => {
+                                    ui.colored_label(
+                                        OK_GREEN,
+                                        "✔ Npcap detected — ISTA car traffic will work.",
+                                    );
+                                }
+                                Some(false) => {
+                                    ui.colored_label(
+                                        WARN_AMBER,
+                                        "⚠ Npcap not detected. Setup will download & launch the Npcap installer (enable WinPcap mode) for ISTA.",
+                                    );
+                                }
+                                None => {}
+                            }
+                            ui.add_space(8.0);
+                            ui.label("Requirements: Windows 10/11 x64 · Administrator approval (UAC)");
                         }
-                        Some(false) => {
-                            ui.colored_label(
-                                WARN_AMBER,
-                                "⚠ Npcap not detected. Setup will download & launch the Npcap installer (enable WinPcap mode) for ISTA.",
+                        Step::ChooseRole => {
+                            ui.label(egui::RichText::new("Which PC is this?").strong().size(15.0));
+                            ui.add_space(10.0);
+
+                            let narrow = ui.available_width() < 480.0;
+                            if narrow {
+                                if role_card(
+                                    ui,
+                                    self.role == Role::Host,
+                                    "🖥  Host — Desktop",
+                                    &[
+                                        "Runs ISTA+, E-Sys, BimmerUtility",
+                                        "Gateway + browser dashboard :47901",
+                                        "Creates BMW-ENET adapter for ISTA",
+                                    ],
+                                ) {
+                                    self.role = Role::Host;
+                                }
+                                ui.add_space(8.0);
+                                if role_card(
+                                    ui,
+                                    self.role == Role::Client,
+                                    "💻  Client — Laptop",
+                                    &[
+                                        "Stays at the car with the ENET cable",
+                                        "Status page :47903, auto-finds Host",
+                                        "Forwards car frames over Wi‑Fi",
+                                    ],
+                                ) {
+                                    self.role = Role::Client;
+                                }
+                            } else {
+                                ui.horizontal(|ui| {
+                                    if role_card(
+                                        ui,
+                                        self.role == Role::Host,
+                                        "🖥  Host — Desktop",
+                                        &[
+                                            "Runs ISTA+, E-Sys, BimmerUtility",
+                                            "Gateway + browser dashboard :47901",
+                                            "Creates BMW-ENET adapter for ISTA",
+                                        ],
+                                    ) {
+                                        self.role = Role::Host;
+                                    }
+                                    ui.add_space(8.0);
+                                    if role_card(
+                                        ui,
+                                        self.role == Role::Client,
+                                        "💻  Client — Laptop",
+                                        &[
+                                            "Stays at the car with the ENET cable",
+                                            "Status page :47903, auto-finds Host",
+                                            "Forwards car frames over Wi‑Fi",
+                                        ],
+                                    ) {
+                                        self.role = Role::Client;
+                                    }
+                                });
+                            }
+                        }
+                        Step::Options => {
+                            ui.label(
+                                egui::RichText::new(format!("Installing: {}", self.role.label()))
+                                    .strong()
+                                    .color(ACCENT),
+                            );
+                            ui.add_space(10.0);
+
+                            if self.role == Role::Client {
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new("Pairing").strong());
+                                    ui.add_space(4.0);
+                                    ui.label("Pair code from the Host dashboard (recommended):");
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.pair_code)
+                                            .hint_text("BMW-XXXX")
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                    ui.add_space(6.0);
+                                    ui.label("Desktop IP hint (optional — auto-detected by pair code):");
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.peer)
+                                            .hint_text("leave blank for auto-find")
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                    ui.small(
+                                        "Only needed if Auto-find fails (Guest Wi‑Fi / AP isolation).",
+                                    );
+                                });
+                                ui.add_space(8.0);
+                            }
+
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new("Security").strong());
+                                ui.add_space(4.0);
+                                ui.label(
+                                    "Shared password (optional; recommended for Internet / relay):",
+                                );
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.password)
+                                        .password(true)
+                                        .hint_text("empty = no encryption on LAN")
+                                        .desired_width(f32::INFINITY),
+                                );
+                            });
+                            ui.add_space(8.0);
+
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new("Launch").strong());
+                                ui.add_space(4.0);
+                                ui.checkbox(&mut self.start_now, "Start now");
+                                ui.checkbox(
+                                    &mut self.start_service,
+                                    "Auto-start at boot (recommended)",
+                                );
+                                let open_label = if self.role == Role::Host {
+                                    "Open dashboard when finished (http://127.0.0.1:47901/)"
+                                } else {
+                                    "Open Client status when finished (http://127.0.0.1:47903/)"
+                                };
+                                ui.checkbox(&mut self.open_dashboard, open_label);
+                            });
+
+                            if self.npcap_present == Some(false) {
+                                ui.add_space(6.0);
+                                ui.colored_label(
+                                    WARN_AMBER,
+                                    "⚠ Npcap missing — Setup downloads & launches the installer. ISTA needs it on BOTH PCs.",
+                                );
+                            }
+
+                            ui.add_space(6.0);
+                            ui.small(format!("Release source: github.com/{}", self.repo));
+                            ui.small(format!("Setup folder: {}", self.setup_dir.display()));
+                        }
+                        Step::Working => {
+                            let (msg, done, total) = self
+                                .progress
+                                .lock()
+                                .map(|p| (p.message.clone(), p.done, p.total))
+                                .unwrap_or_default();
+                            ui.label(egui::RichText::new("Installing…").strong().size(15.0));
+                            ui.add_space(10.0);
+                            if total > 0 {
+                                let frac = (done as f32 / total as f32).clamp(0.0, 1.0);
+                                ui.add(egui::ProgressBar::new(frac).text(format!(
+                                    "{:.1} / {:.1} MB",
+                                    done as f32 / 1_048_576.0,
+                                    total as f32 / 1_048_576.0
+                                )));
+                            } else {
+                                ui.add(egui::ProgressBar::new(0.4).animate(true));
+                            }
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new(&msg)
+                                    .size(13.0)
+                                    .color(egui::Color32::from_rgb(150, 162, 178)),
                             );
                         }
-                        None => {}
+                        Step::Done => {
+                            let summary = self
+                                .progress
+                                .lock()
+                                .map(|p| p.result_summary.clone())
+                                .unwrap_or_default();
+                            ui.colored_label(
+                                OK_GREEN,
+                                egui::RichText::new("✔ Installation complete").strong().size(16.0),
+                            );
+                            ui.add_space(10.0);
+                            ui.label(summary);
+                        }
+                        Step::Error => {
+                            let err = self
+                                .progress
+                                .lock()
+                                .map(|p| p.error.clone())
+                                .unwrap_or_default();
+                            ui.colored_label(
+                                ERR_RED,
+                                egui::RichText::new("✕ Setup failed").strong().size(16.0),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(&err);
+                            ui.add_space(8.0);
+                            ui.label("Tips:");
+                            ui.label("• Run as Administrator");
+                            ui.label(
+                                "• Prefer the Setup.exe from the latest Release (packages are built in)",
+                            );
+                            ui.label(
+                                "• Or extract BMW-ENET-Windows-Installer.zip and keep the role zip next to Setup.exe",
+                            );
+                            ui.label("• Private GitHub repos cannot be downloaded anonymously");
+                        }
                     }
-                    ui.add_space(8.0);
-                    ui.label("Requirements: Windows 10/11 x64 · Administrator approval (UAC)");
-                    ui.add_space(16.0);
-                    if ui
-                        .add(egui::Button::new(egui::RichText::new("Continue  →").strong()).min_size([120.0, 32.0].into()))
-                        .clicked()
-                    {
-                        self.step = Step::ChooseRole;
-                    }
-                }
-                Step::ChooseRole => {
-                    ui.label(egui::RichText::new("Which PC is this?").strong().size(15.0));
-                    ui.add_space(10.0);
-
-                    ui.horizontal(|ui| {
-                        if role_card(
-                            ui,
-                            self.role == Role::Host,
-                            "🖥  Host — Desktop",
-                            &[
-                                "Runs ISTA+, E-Sys, BimmerUtility",
-                                "Gateway + browser dashboard :47901",
-                                "Creates BMW-ENET adapter for ISTA",
-                            ],
-                        ) {
-                            self.role = Role::Host;
-                        }
-                        ui.add_space(8.0);
-                        if role_card(
-                            ui,
-                            self.role == Role::Client,
-                            "💻  Client — Laptop",
-                            &[
-                                "Stays at the car with the ENET cable",
-                                "Status page :47903, auto-finds Host",
-                                "Forwards car frames over Wi‑Fi",
-                            ],
-                        ) {
-                            self.role = Role::Client;
-                        }
-                    });
-
-                    ui.add_space(16.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("←  Back").clicked() {
-                            self.step = Step::Welcome;
-                        }
-                        if ui
-                            .add(egui::Button::new(egui::RichText::new("Next  →").strong()).min_size([100.0, 30.0].into()))
-                            .clicked()
-                        {
-                            self.step = Step::Options;
-                        }
-                    });
-                }
-                Step::Options => {
-                    ui.label(
-                        egui::RichText::new(format!("Installing: {}", self.role.label()))
-                            .strong()
-                            .color(ACCENT),
-                    );
-                    ui.add_space(10.0);
-
-                    if self.role == Role::Client {
-                        ui.group(|ui| {
-                            ui.label(egui::RichText::new("Pairing").strong());
-                            ui.add_space(4.0);
-                            ui.label("Pair code from the Host dashboard (recommended):");
-                            ui.add(egui::TextEdit::singleline(&mut self.pair_code).hint_text("BMW-XXXX"));
-                            ui.add_space(6.0);
-                            ui.label("Desktop IP hint (optional — auto-detected by pair code):");
-                            ui.add(egui::TextEdit::singleline(&mut self.peer).hint_text("leave blank for auto-find"));
-                            ui.small("Only needed if Auto-find fails (Guest Wi‑Fi / AP isolation).");
-                        });
-                        ui.add_space(8.0);
-                    }
-
-                    ui.group(|ui| {
-                        ui.label(egui::RichText::new("Security").strong());
-                        ui.add_space(4.0);
-                        ui.label("Shared password (optional; recommended for Internet / relay):");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.password)
-                                .password(true)
-                                .hint_text("empty = no encryption on LAN"),
-                        );
-                    });
-                    ui.add_space(8.0);
-
-                    ui.group(|ui| {
-                        ui.label(egui::RichText::new("Launch").strong());
-                        ui.add_space(4.0);
-                        ui.checkbox(&mut self.start_now, "Start now");
-                        ui.checkbox(&mut self.start_service, "Auto-start at boot (recommended)");
-                        let open_label = if self.role == Role::Host {
-                            "Open dashboard when finished (http://127.0.0.1:47901/)"
-                        } else {
-                            "Open Client status when finished (http://127.0.0.1:47903/)"
-                        };
-                        ui.checkbox(&mut self.open_dashboard, open_label);
-                    });
-
-                    if self.npcap_present == Some(false) {
-                        ui.add_space(6.0);
-                        ui.colored_label(
-                            WARN_AMBER,
-                            "⚠ Npcap missing — Setup downloads & launches the installer. ISTA needs it on BOTH PCs.",
-                        );
-                    }
-
-                    ui.add_space(6.0);
-                    ui.small(format!("Release source: github.com/{}", self.repo));
-                    ui.small(format!("Setup folder: {}", self.setup_dir.display()));
-
-                    ui.add_space(14.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("←  Back").clicked() {
-                            self.step = Step::ChooseRole;
-                        }
-                        if ui
-                            .add(
-                                egui::Button::new(egui::RichText::new("Install").strong().size(15.0))
-                                    .fill(egui::Color32::from_rgb(20, 120, 80))
-                                    .min_size([130.0, 34.0].into()),
-                            )
-                            .clicked()
-                        {
-                            self.start_worker();
-                        }
-                    });
-                }
-                Step::Working => {
-                    let (msg, done, total) = self
-                        .progress
-                        .lock()
-                        .map(|p| (p.message.clone(), p.done, p.total))
-                        .unwrap_or_default();
-                    ui.label(egui::RichText::new("Installing…").strong().size(15.0));
-                    ui.add_space(10.0);
-                    if total > 0 {
-                        let frac = (done as f32 / total as f32).clamp(0.0, 1.0);
-                        ui.add(egui::ProgressBar::new(frac).text(format!(
-                            "{:.1} / {:.1} MB",
-                            done as f32 / 1_048_576.0,
-                            total as f32 / 1_048_576.0
-                        )));
-                    } else {
-                        ui.add(egui::ProgressBar::new(0.4).animate(true));
-                    }
-                    ui.add_space(8.0);
-                    ui.label(egui::RichText::new(&msg).size(13.0).color(egui::Color32::from_rgb(150, 162, 178)));
-                }
-                Step::Done => {
-                    let summary = self
-                        .progress
-                        .lock()
-                        .map(|p| p.result_summary.clone())
-                        .unwrap_or_default();
-                    ui.colored_label(OK_GREEN, egui::RichText::new("✔ Installation complete").strong().size(16.0));
-                    ui.add_space(10.0);
-                    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                        ui.label(summary);
-                    });
-                    ui.add_space(14.0);
-                    if ui
-                        .add(egui::Button::new(egui::RichText::new("Close").strong()).min_size([110.0, 30.0].into()))
-                        .clicked()
-                    {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                }
-                Step::Error => {
-                    let err = self
-                        .progress
-                        .lock()
-                        .map(|p| p.error.clone())
-                        .unwrap_or_default();
-                    ui.colored_label(ERR_RED, egui::RichText::new("✕ Setup failed").strong().size(16.0));
-                    ui.add_space(8.0);
-                    egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
-                        ui.label(&err);
-                    });
-                    ui.add_space(8.0);
-                    ui.label("Tips:");
-                    ui.label("• Run as Administrator");
-                    ui.label("• Prefer the Setup.exe from the latest Release (packages are built in)");
-                    ui.label("• Or extract BMW-ENET-Windows-Installer.zip and keep the role zip next to Setup.exe");
-                    ui.label("• Private GitHub repos cannot be downloaded anonymously");
-                    ui.add_space(14.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("←  Back").clicked() {
-                            self.worker_started = false;
-                            if let Ok(mut p) = self.progress.lock() {
-                                p.finished = false;
-                                p.success = false;
-                                p.error.clear();
-                                p.message.clear();
-                            }
-                            self.step = Step::Options;
-                        }
-                        if ui.button("Close").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
-                }
-            }
+                    ui.add_space(12.0);
+                });
         });
+
+        if nav.continue_welcome {
+            self.step = Step::ChooseRole;
+        }
+        if nav.back {
+            self.step = match self.step {
+                Step::ChooseRole => Step::Welcome,
+                Step::Options => Step::ChooseRole,
+                other => other,
+            };
+        }
+        if nav.next_role {
+            self.step = Step::Options;
+        }
+        if nav.install {
+            self.start_worker();
+        }
+        if nav.retry {
+            self.worker_started = false;
+            if let Ok(mut p) = self.progress.lock() {
+                p.finished = false;
+                p.success = false;
+                p.error.clear();
+                p.message.clear();
+            }
+            self.step = Step::Options;
+        }
+        if nav.close {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 }
 
@@ -566,9 +710,13 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([560.0, 480.0])
-            .with_min_inner_size([480.0, 400.0])
+            // Tall enough for Client Options + Npcap warning at 100–125% DPI;
+            // sticky footer + scroll cover higher scaling without clipping buttons.
+            .with_inner_size([620.0, 640.0])
+            .with_min_inner_size([520.0, 480.0])
+            .with_resizable(true)
             .with_title("BMW ENET Gateway Setup"),
+        centered: true,
         ..Default::default()
     };
 

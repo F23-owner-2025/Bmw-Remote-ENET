@@ -2,7 +2,7 @@
 
 Active branch: `cursor/remote-enet-gateway-0b54`  
 PR: #3  
-Latest tag: **v0.1.27** (scrub hardcoded personal GitHub username from source)
+Latest tag: **v0.1.28** (Setup wizard sticky footer — buttons always visible)
 
 ## What this project is
 
