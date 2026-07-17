@@ -10,11 +10,17 @@ publish = false
 name = "BMW-ENET-Setup"
 path = "src/main.rs"
 
+[features]
+default = []
+# Bake Host/Client zip packages into BMW-ENET-Setup.exe (required for private repos).
+embed = []
+
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+enet-core = { workspace = true }
 eframe = { version = "0.30", default-features = true }
 egui = "0.30"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }

@@ -13,7 +13,7 @@
                                               ┌────────▼────────┐
                                               │ Desktop         │
                                               │ enet-gateway    │
-                                              │ Wintun BMW-ENET │
+                                              │ BMW-ENET (Npcap)│
                                               │ 169.254.1.1/16  │
                                               │ ISTA / E-Sys    │
                                               └─────────────────┘
@@ -22,8 +22,8 @@
 ## Packet path
 
 ```text
-ISTA ──► TAP/Wintun ──► Gateway tunnel encode ──UDP──► Agent decode ──► ENET NIC ──► Vehicle
-Vehicle ──► ENET NIC ──► Agent encode ──UDP──► Gateway decode ──► TAP/Wintow ──► ISTA
+ISTA ──► BMW-ENET (Npcap) ──► Gateway tunnel encode ──UDP──► Agent (Npcap) ──► ENET NIC ──► Vehicle
+Vehicle ──► ENET NIC ──► Agent (Npcap) encode ──UDP──► Gateway decode ──► BMW-ENET (Npcap) ──► ISTA
 ```
 
 ## Security zones

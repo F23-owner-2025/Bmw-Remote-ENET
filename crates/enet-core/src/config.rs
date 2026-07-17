@@ -94,9 +94,7 @@ pub struct GatewayConfig {
     pub allowed_cidrs: Vec<String>,
     /// Preferred ENET / LAN interface name (empty = auto).
     pub enet_interface: String,
-    /// Preferred LAN interface for tunnel (empty = auto).
-    pub lan_interface: String,
-    /// Virtual TAP/Wintun interface name on gateway.
+    /// Virtual loopback interface name on gateway (ISTA selects this).
     pub virtual_interface: String,
     /// Tester IP to assign on gateway virtual NIC.
     pub tester_ip: String,
@@ -106,8 +104,6 @@ pub struct GatewayConfig {
     pub password: String,
     /// Require encryption.
     pub require_crypto: bool,
-    /// Enable TLS for control API (future).
-    pub tls_enabled: bool,
     /// Auto-start gateway/agent on boot.
     pub auto_start: bool,
     /// Reconnect delay milliseconds (base).
@@ -146,6 +142,12 @@ pub struct GatewayConfig {
     pub wireguard_desktop_ip: String,
     /// Expected laptop WireGuard IP.
     pub wireguard_laptop_ip: String,
+    /// Automatically install new GitHub releases at startup / when idle.
+    pub auto_update: bool,
+    /// GitHub repo (owner/name) that publishes release assets.
+    pub update_repo: String,
+    /// Optional GitHub token (needed while the repo is private).
+    pub update_token: String,
 }
 
 impl Default for GatewayConfig {
@@ -162,19 +164,18 @@ impl Default for GatewayConfig {
                 "172.16.0.0/12".into(),
                 "10.66.0.0/24".into(),
                 "100.64.0.0/10".into(),
+                "169.254.0.0/16".into(),
             ],
             enet_interface: String::new(),
-            lan_interface: String::new(),
             virtual_interface: "BMW-ENET".into(),
             tester_ip: "169.254.1.1".into(),
             tester_mask: "255.255.0.0".into(),
             password: String::new(),
             require_crypto: false,
-            tls_enabled: false,
             auto_start: true,
             reconnect_delay_ms: 500,
             reconnect_delay_max_ms: 10_000,
-            keepalive_interval_ms: 1000,
+            keepalive_interval_ms: 500,
             peer_timeout_ms: 5000,
             log_level: LogLevel::Info,
             log_dir: PathBuf::from("logs"),
@@ -190,6 +191,9 @@ impl Default for GatewayConfig {
             relay_url: String::new(),
             wireguard_desktop_ip: "10.66.0.1".into(),
             wireguard_laptop_ip: "10.66.0.2".into(),
+            auto_update: true,
+            update_repo: "Ryan-duntley19/Bmw-Remote-ENET".into(),
+            update_token: String::new(),
         }
     }
 }
@@ -314,9 +318,18 @@ impl GatewayConfig {
                 hints.push("3. Laptop dials that WG IP after its tunnel is up.".into());
             }
             (Role::Agent, NetworkMode::Lan) => {
-                hints.push("Mode: Same network — auto-discover desktop.".into());
-                hints.push("1. Same Wi‑Fi/Ethernet as the desktop.".into());
-                hints.push("2. Start enet-agent (optional pair code).".into());
+                hints.push("Mode: Same network — auto-detect desktop IP (DHCP OK).".into());
+                hints.push(
+                    "1. Host must be running; Client finds it by pair code (no static IP)."
+                        .into(),
+                );
+                if let Some(peer) = self.peer_addr {
+                    hints.push(format!("2. Last known desktop IP hint: {peer}."));
+                } else {
+                    hints.push(
+                        "2. Open http://127.0.0.1:47903/ if you need Auto-find / IP hint.".into(),
+                    );
+                }
                 hints.push("3. Plug ENET into car + this laptop.".into());
             }
             (Role::Agent, NetworkMode::Relay) => {

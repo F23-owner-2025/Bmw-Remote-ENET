@@ -1,5 +1,7 @@
 # Remote / Different-Network Mode
 
+Install Host + Client first with **`BMW-ENET-Setup.exe`** (see [README](../README.md)).
+
 When the **laptop (car)** and **desktop (tools)** are not on the same Wi‑Fi/Ethernet, use one of these modes.
 
 ## Recommended options

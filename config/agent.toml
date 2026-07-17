@@ -5,7 +5,8 @@
 role = "agent"
 network_mode = "lan"
 tunnel_port = 47900
-api_port = 47901
+# Client status page port (Host dashboard is 47901).
+api_port = 47903
 discovery_port = 47902
 auto_discover = true
 pair_code = ""
@@ -14,7 +15,7 @@ require_crypto = false
 relay_url = ""
 auto_start = true
 setup_complete = false
-allowed_cidrs = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "10.66.0.0/24", "100.64.0.0/10"]
+allowed_cidrs = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "10.66.0.0/24", "100.64.0.0/10", "169.254.0.0/16"]
 enet_interface = ""
 log_level = "info"
 log_dir = "logs"

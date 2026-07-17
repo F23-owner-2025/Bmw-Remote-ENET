@@ -53,6 +53,15 @@ pub struct GatewayState {
     pub last_error: Option<String>,
     /// Software version.
     pub version: String,
+    /// Connected peer endpoint (laptop), if known — e.g. `192.168.1.20:47900`.
+    #[serde(default)]
+    pub peer_endpoint: Option<String>,
+    /// RTT measured by this side (desktop→laptop probes), milliseconds.
+    #[serde(default)]
+    pub rtt_local_ms: f64,
+    /// RTT reported by the laptop (laptop→desktop probes), milliseconds.
+    #[serde(default)]
+    pub rtt_peer_ms: f64,
 }
 
 impl GatewayState {

@@ -22,6 +22,11 @@ sysinfo = { workspace = true }
 hostname = { workspace = true }
 uuid = { workspace = true }
 async-trait = { workspace = true }
+if-addrs = "0.13"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

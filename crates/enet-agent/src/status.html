@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>BMW ENET Client — Laptop</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #151b23;
+    --card: #1a222c;
+    --card-hi: #202a36;
+    --border: #2a3441;
+    --border-hi: #3a4757;
+    --text: #e9eef5;
+    --muted: #8d9cae;
+    --ok: #33c274;
+    --warn: #e6a43b;
+    --bad: #e25a4a;
+    --accent: #4aa8c7;
+    --accent-dim: #2a6f84;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
+    background:
+      radial-gradient(1100px 500px at 15% -10%, #16303a 0%, transparent 60%),
+      radial-gradient(900px 400px at 110% 0%, #1a2430 0%, transparent 55%),
+      var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 1.25rem;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    margin-bottom: 1.1rem;
+  }
+  .brand { display: flex; align-items: center; gap: 0.7rem; }
+  .brand .logo {
+    width: 34px; height: 34px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent-dim), #1c3d4a);
+    border: 1px solid var(--border-hi);
+    display: grid; place-items: center;
+    font-weight: 800; font-size: 0.72rem;
+    color: #cfe9f2;
+  }
+  .brand .t1 { font-weight: 700; }
+  .brand .t2 { color: var(--muted); font-size: 0.8rem; margin-top: 0.1rem; }
+  .chip {
+    border: 1px solid var(--border-hi);
+    background: var(--card);
+    border-radius: 999px;
+    padding: 0.32rem 0.75rem;
+    font-size: 0.82rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .chip strong { color: var(--accent); letter-spacing: 0.06em; }
+
+  .sub {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 0.9rem;
+    min-height: 1.2em;
+  }
+
+  .rows { display: flex; flex-direction: column; gap: 0.5rem; }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.78rem 0.95rem;
+    transition: border-color 0.2s;
+  }
+  .row.on { border-color: rgba(51, 194, 116, 0.4); }
+  .row .label { font-weight: 600; font-size: 0.95rem; }
+  .row .detail { color: var(--muted); font-size: 0.82rem; margin-top: 0.18rem; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 0.3rem 0.62rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge::before {
+    content: "";
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .badge.ok   { background: rgba(51,194,116,0.16); color: var(--ok); }
+  .badge.warn { background: rgba(230,164,59,0.16); color: var(--warn); }
+  .badge.off  { background: rgba(141,156,174,0.13); color: var(--muted); }
+  .badge.bad  { background: rgba(226,90,74,0.16);  color: var(--bad); }
+
+  .metrics {
+    margin-top: 0.9rem;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+  .metric {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.75rem;
+    text-align: center;
+  }
+  .metric .k { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; }
+  .metric .v { font-size: 1.1rem; font-weight: 700; margin-top: 0.22rem; font-variant-numeric: tabular-nums; }
+
+  .panel {
+    margin-top: 1rem;
+    padding: 0.95rem 1.05rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+  .panel h2 { margin: 0 0 0.35rem; font-size: 0.98rem; }
+  .panel p { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.86rem; line-height: 1.5; }
+  .panel label {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 0.28rem;
+  }
+  .field { margin-bottom: 0.7rem; }
+  .panel input {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: #0c1014;
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  .panel input:focus { outline: 2px solid var(--accent-dim); outline-offset: 1px; }
+  .actions { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
+  button {
+    border: 1px solid var(--border-hi);
+    border-radius: 9px;
+    padding: 0.55rem 0.95rem;
+    font-weight: 650;
+    font-size: 0.88rem;
+    cursor: pointer;
+    background: var(--card-hi);
+    color: var(--text);
+    transition: filter 0.15s, transform 0.05s;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--accent-dim); border-color: var(--accent); }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .msg { margin-top: 0.6rem; font-size: 0.86rem; color: var(--muted); min-height: 1.2em; }
+  .msg.ok { color: var(--ok); }
+  .msg.err { color: var(--bad); }
+  .hint-line { color: var(--muted); font-size: 0.8rem; }
+
+  .checklist {
+    margin-top: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .checklist .title { color: var(--accent); font-weight: 650; margin-bottom: 0.3rem; }
+  .checklist ol { margin: 0.2rem 0 0 1.1rem; padding: 0; line-height: 1.55; }
+  code {
+    font-family: Consolas, monospace;
+    font-size: 0.8rem;
+    color: var(--text);
+    background: #0c1014;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.05rem 0.35rem;
+  }
+  details.adv { margin-top: 0.85rem; }
+  details.adv summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.84rem;
+    user-select: none;
+  }
+  details.adv[open] summary { margin-bottom: 0.6rem; }
+  footer {
+    margin-top: 1.1rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo">EN</div>
+      <div>
+        <div class="t1">BMW ENET Client</div>
+        <div class="t2">Laptop at the car</div>
+      </div>
+    </div>
+    <span class="chip">Pair <strong id="pair-chip">—</strong></span>
+  </header>
+
+  <p class="sub" id="sub" aria-live="polite">Waiting for status…</p>
+
+  <div class="rows">
+    <div class="row" id="row-desk">
+      <div>
+        <div class="label">Desktop</div>
+        <div class="detail" id="desk-d">—</div>
+      </div>
+      <span class="badge off" id="desk-b">—</span>
+    </div>
+    <div class="row" id="row-l2">
+      <div>
+        <div class="label">Car bridge (L2)</div>
+        <div class="detail" id="l2-d">Npcap capture on the ENET adapter</div>
+      </div>
+      <span class="badge off" id="l2-b">—</span>
+    </div>
+    <div class="row" id="row-enet">
+      <div>
+        <div class="label">ENET cable</div>
+        <div class="detail" id="enet-d">—</div>
+      </div>
+      <span class="badge off" id="enet-b">—</span>
+    </div>
+    <div class="row" id="row-veh">
+      <div>
+        <div class="label">Vehicle</div>
+        <div class="detail" id="veh-d">—</div>
+      </div>
+      <span class="badge off" id="veh-b">—</span>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="k">Latency</div>
+      <div class="v" id="m-rtt">—</div>
+    </div>
+    <div class="metric">
+      <div class="k">Loss</div>
+      <div class="v" id="m-loss">—</div>
+    </div>
+    <div class="metric">
+      <div class="k">Version</div>
+      <div class="v" id="m-ver">—</div>
+    </div>
+  </div>
+
+  <div class="panel" id="connect-box">
+    <h2>Desktop connection</h2>
+    <p>
+      The Client <strong>auto-detects</strong> the desktop by pair code — no static IP needed.
+      If Desktop stays Waiting, click <strong>Auto-find</strong>.
+    </p>
+    <div class="actions">
+      <button id="btn-discover" class="primary" type="button">Auto-find desktop</button>
+      <span id="saved-peer" class="hint-line"></span>
+    </div>
+
+    <details class="adv">
+      <summary>Manual IP hint (only if Auto-find fails)</summary>
+      <div class="field">
+        <label for="peer">Desktop IP — copy from the Host dashboard <code>http://127.0.0.1:47901/</code></label>
+        <input id="peer" type="text" inputmode="decimal" placeholder="192.168.1.50" autocomplete="off"/>
+      </div>
+      <div class="field">
+        <label for="pair">Pair code (optional)</label>
+        <input id="pair" type="text" placeholder="BMW-XXXX" autocomplete="off"/>
+      </div>
+      <div class="actions">
+        <button id="btn-connect" type="button">Connect with IP hint</button>
+      </div>
+    </details>
+    <div class="msg" id="connect-msg" aria-live="polite"></div>
+  </div>
+
+  <div class="panel" id="update-box" style="display:none">
+    <h2>Update available</h2>
+    <p id="update-txt">A newer version is ready. It installs automatically when idle, or update now.</p>
+    <div class="actions">
+      <button id="btn-update" class="primary" type="button">Update now</button>
+    </div>
+  </div>
+
+  <div class="panel" id="settings-box">
+    <h2>Settings · Updates</h2>
+    <p>
+      Installed <strong id="upd-cur">v?</strong>. Client checks GitHub every time it starts.
+    </p>
+    <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem">
+      <input type="checkbox" id="auto-update"/>
+      Automatically install updates when idle
+    </label>
+    <div class="actions">
+      <button id="btn-check-update" class="primary" type="button">Check for updates</button>
+      <button id="btn-update-now2" type="button" style="display:none">Update now</button>
+    </div>
+    <div class="msg" id="upd-msg" aria-live="polite"></div>
+  </div>
+
+  <div class="checklist">
+    <div class="title">ISTA on the desktop — checklist</div>
+    <ol>
+      <li>Npcap installed on <strong>both</strong> PCs (WinPcap-compatible mode)</li>
+      <li>Car bridge above shows <strong>READY</strong></li>
+      <li>ENET cable in car + laptop, ignition ON → Vehicle AWAKE</li>
+      <li>Desktop ISTA: select interface <code>BMW-ENET</code></li>
+    </ol>
+  </div>
+
+  <footer>
+    <span id="foot-status">—</span>
+    <span id="foot-ver">v?</span>
+  </footer>
+</div>
+
+<script>
+function setBadge(el, text, kind) {
+  el.textContent = text;
+  el.className = 'badge ' + kind;
+}
+function setRow(id, on) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('on', !!on);
+}
+
+let lastConfigured = '';
+
+async function refresh() {
+  try {
+    const s = await fetch('/api/status').then(r => r.json());
+    document.getElementById('pair-chip').textContent = s.pair_code || '—';
+    document.getElementById('m-ver').textContent = s.version || '?';
+    document.getElementById('foot-ver').textContent = 'v' + (s.version || '?');
+    document.getElementById('sub').textContent = s.friendly || '';
+    document.getElementById('foot-status').textContent = s.friendly || '';
+
+    const desk = !!s.desktop_connected;
+    setBadge(document.getElementById('desk-b'), desk ? 'CONNECTED' : 'WAITING', desk ? 'ok' : 'off');
+    setRow('row-desk', desk);
+    document.getElementById('desk-d').textContent = desk
+      ? (s.desktop_peer || 'Tunnel up')
+      : (s.configured_peer
+          ? ('Dialing ' + s.configured_peer + '…')
+          : 'Auto-finding Host on your LAN…');
+
+    const l2 = !!s.l2_active;
+    setBadge(document.getElementById('l2-b'), l2 ? 'READY' : 'INACTIVE', l2 ? 'ok' : 'bad');
+    setRow('row-l2', l2);
+    document.getElementById('l2-d').textContent = l2
+      ? ('Forwarding car frames · ' + (s.l2_label || ''))
+      : ((s.l2_label || 'Npcap not active') + ' — ISTA will not see the car');
+
+    const enet = !!s.enet_link;
+    setBadge(document.getElementById('enet-b'), enet ? 'PLUGGED' : 'UNPLUGGED', enet ? 'ok' : 'off');
+    setRow('row-enet', enet);
+    document.getElementById('enet-d').textContent = s.enet_interface
+      ? (enet ? ('Link up · ' + s.enet_interface) : ('No link · ' + s.enet_interface))
+      : 'No ENET adapter detected yet';
+
+    const awake = !!s.vehicle_awake;
+    setBadge(document.getElementById('veh-b'), awake ? 'AWAKE' : 'SLEEP', awake ? 'ok' : 'off');
+    setRow('row-veh', awake);
+    document.getElementById('veh-d').textContent = awake
+      ? 'Car answering / traffic seen'
+      : 'Ignition ON after ENET is plugged';
+
+    document.getElementById('m-rtt').textContent = (s.rtt_ms || 0).toFixed(1) + ' ms';
+    document.getElementById('m-loss').textContent = ((s.loss_rate || 0) * 100).toFixed(1) + '%';
+
+    const peerInput = document.getElementById('peer');
+    const pairInput = document.getElementById('pair');
+    if (s.configured_peer && s.configured_peer !== lastConfigured && !peerInput.matches(':focus')) {
+      peerInput.value = s.configured_peer;
+      lastConfigured = s.configured_peer;
+    }
+    if (s.pair_code && !pairInput.matches(':focus') && !pairInput.value) {
+      pairInput.value = s.pair_code;
+    }
+    document.getElementById('saved-peer').textContent = s.configured_peer
+      ? ('Saved hint: ' + s.configured_peer)
+      : '';
+
+    const upd = s.update_available;
+    document.getElementById('update-box').style.display = upd ? 'block' : 'none';
+    if (upd) {
+      document.getElementById('update-txt').textContent =
+        'v' + upd + ' is ready — installs automatically when idle, or update now.';
+    }
+    document.getElementById('upd-cur').textContent = 'v' + (s.version || '?');
+    const autoEl = document.getElementById('auto-update');
+    if (autoEl && document.activeElement !== autoEl) autoEl.checked = !!s.auto_update;
+    document.getElementById('btn-update-now2').style.display = upd ? 'inline-block' : 'none';
+  } catch (e) {
+    document.getElementById('sub').textContent = 'Status unavailable — is enet-agent running?';
+  }
+}
+
+function showMsg(text, kind) {
+  const msg = document.getElementById('connect-msg');
+  msg.textContent = text;
+  msg.className = 'msg' + (kind ? (' ' + kind) : '');
+}
+
+async function connect() {
+  const btn = document.getElementById('btn-connect');
+  const peer = document.getElementById('peer').value.trim();
+  const pair_code = document.getElementById('pair').value.trim();
+  if (!peer) {
+    showMsg('Enter a desktop LAN IP, or use Auto-find desktop.', 'err');
+    return;
+  }
+  btn.disabled = true;
+  showMsg('Saving hint and connecting…');
+  try {
+    const r = await fetch('/api/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peer, pair_code: pair_code || null }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+      showMsg(j.message || ('Connect failed (' + r.status + ')'), 'err');
+    } else {
+      showMsg(j.message || 'Saved — dialing desktop…', 'ok');
+      lastConfigured = peer;
+    }
+  } catch (e) {
+    showMsg('Could not reach agent: ' + e, 'err');
+  } finally {
+    btn.disabled = false;
+    refresh();
+  }
+}
+
+async function autoFind() {
+  const btn = document.getElementById('btn-discover');
+  btn.disabled = true;
+  showMsg('Auto-finding desktop…');
+  try {
+    const r = await fetch('/api/discover', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+      showMsg(j.message || 'Auto-find failed', 'err');
+    } else {
+      showMsg(j.message || 'Searching LAN…', 'ok');
+      lastConfigured = '';
+    }
+  } catch (e) {
+    showMsg('Could not reach agent: ' + e, 'err');
+  } finally {
+    btn.disabled = false;
+    refresh();
+  }
+}
+
+async function updateNow() {
+  const btn = document.getElementById('btn-update');
+  if (btn) btn.disabled = true;
+  const msg = document.getElementById('upd-msg');
+  if (msg) { msg.textContent = 'Updating…'; msg.className = 'msg'; }
+  showMsg('Updating…');
+  try {
+    const r = await fetch('/api/update', { method: 'POST' });
+    const j = await r.json();
+    showMsg(j.message || 'Updating…', j.ok ? 'ok' : 'err');
+    if (msg) {
+      msg.textContent = j.message || 'Updating…';
+      msg.className = 'msg' + (j.ok ? ' ok' : ' err');
+    }
+  } catch (e) {
+    showMsg('Update failed: ' + e, 'err');
+    if (msg) { msg.textContent = 'Update failed: ' + e; msg.className = 'msg err'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function checkUpdate() {
+  const msg = document.getElementById('upd-msg');
+  const btn = document.getElementById('btn-check-update');
+  if (btn) btn.disabled = true;
+  if (msg) { msg.textContent = 'Checking GitHub…'; msg.className = 'msg'; }
+  try {
+    const r = await fetch('/api/check-update', { method: 'POST' });
+    const j = await r.json();
+    if (msg) {
+      msg.textContent = j.message || 'Done';
+      msg.className = 'msg' + (j.ok ? ' ok' : ' err');
+    }
+  } catch (e) {
+    if (msg) { msg.textContent = 'Check failed: ' + e; msg.className = 'msg err'; }
+  } finally {
+    if (btn) btn.disabled = false;
+    refresh();
+  }
+}
+
+async function saveAutoUpdate() {
+  const on = document.getElementById('auto-update').checked;
+  const msg = document.getElementById('upd-msg');
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auto_update: on }),
+    });
+    const j = await r.json();
+    if (msg) {
+      msg.textContent = j.message || (on ? 'Auto-update on' : 'Auto-update off');
+      msg.className = 'msg ok';
+    }
+  } catch (e) {
+    if (msg) { msg.textContent = String(e); msg.className = 'msg err'; }
+  }
+}
+
+document.getElementById('btn-connect').addEventListener('click', connect);
+document.getElementById('btn-discover').addEventListener('click', autoFind);
+document.getElementById('btn-update').addEventListener('click', updateNow);
+document.getElementById('btn-update-now2').addEventListener('click', updateNow);
+document.getElementById('btn-check-update').addEventListener('click', checkUpdate);
+document.getElementById('auto-update').addEventListener('change', saveAutoUpdate);
+document.getElementById('peer').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') connect();
+});
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

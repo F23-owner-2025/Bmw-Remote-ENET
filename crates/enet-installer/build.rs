@@ -27,6 +27,7 @@ fn main() {
 "#);
         res.set("ProductName", "BMW ENET Gateway Setup");
         res.set("FileDescription", "BMW ENET Host/Client installation wizard");
+        res.set_icon("../../assets/icon.ico");
         if let Err(e) = res.compile() {
             println!("cargo:warning=winres failed: {e}");
         }

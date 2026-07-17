@@ -231,7 +231,8 @@ async fn setup_agent(
     } else {
         println!("Mode: Same network (auto-discover)\n");
         cfg.network_mode = NetworkMode::Lan;
-        cfg.auto_discover = peer.is_none();
+        // Peer is only a hint — keep discovery ON so DHCP IP changes re-learn the Host.
+        cfg.auto_discover = true;
         cfg.require_crypto = !cfg.password.is_empty();
     }
 

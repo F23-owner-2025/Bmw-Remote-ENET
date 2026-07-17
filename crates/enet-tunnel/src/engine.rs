@@ -92,8 +92,19 @@ impl TunnelEngine {
 
     /// Bind UDP and run until stopped.
     pub async fn run(self) -> anyhow::Result<TunnelHandle> {
+        if self.opts.require_crypto && self.opts.crypto.is_none() {
+            anyhow::bail!(
+                "require_crypto is set but no password is configured — set the same password on both PCs"
+            );
+        }
         let socket = Arc::new(UdpSocket::bind(self.opts.bind).await?);
         let _ = socket.set_broadcast(true);
+        // Larger buffers help Wi‑Fi↔LAN jitter absorb bursts (ISTA/coding traffic).
+        {
+            let sock_ref = socket2::SockRef::from(socket.as_ref());
+            let _ = sock_ref.set_recv_buffer_size(4 * 1024 * 1024);
+            let _ = sock_ref.set_send_buffer_size(4 * 1024 * 1024);
+        }
         info!(bind = %self.opts.bind, role = %self.opts.role, "tunnel UDP bound");
 
         let running = Arc::new(AtomicBool::new(true));
@@ -137,6 +148,7 @@ impl TunnelEngine {
             let tx_seq = tx_seq.clone();
             let state = self.state.clone();
             let running = running.clone();
+            let is_agent = self.opts.role == "agent";
             tokio::spawn(async move {
                 while running.load(Ordering::SeqCst) {
                     match eth.recv().await {
@@ -152,10 +164,15 @@ impl TunnelEngine {
                                             warn!(error = %e, "udp send failed");
                                         } else {
                                             stats.record_tx(pkt.len());
-                                            let mut st = state.write();
-                                            st.vehicle.last_activity_ms = now_ms();
-                                            st.vehicle.awake = true;
-                                            st.vehicle.link_up = true;
+                                            // Car-side evidence only on the agent. Gateway local TAP is tools.
+                                            if is_agent {
+                                                let mut st = state.write();
+                                                st.vehicle.last_activity_ms = now_ms();
+                                                // Awake = recent car traffic; link_up is OS carrier only.
+                                                if st.vehicle.link_up {
+                                                    st.vehicle.awake = true;
+                                                }
+                                            }
                                         }
                                     }
                                     Err(e) => {
@@ -206,43 +223,110 @@ impl TunnelEngine {
                                     info!(%src, "learned tunnel peer");
                                     *slot = Some(src);
                                     let _ = peer_watch_tx.send(Some(src));
+                                    stats.reset_rx_sequence();
+                                    let mut st = state.write();
+                                    st.peer_endpoint = Some(src.to_string());
                                 } else if let Some(existing) = *slot {
-                                    if existing.ip() != src.ip() && opts.peer.is_some() {
-                                        warn!(%src, expected = %existing, "unexpected peer ip");
-                                        stats.record_drop();
-                                        continue;
+                                    if existing.ip() != src.ip() {
+                                        let tunnel_port = opts
+                                            .peer
+                                            .map(|p| p.port())
+                                            .unwrap_or(existing.port());
+                                        // Laptop --peer can be a different NIC than the one the
+                                        // desktop replies from (multi-homed Host). Learn it.
+                                        // Ignore other Clients (ephemeral ports ≠ tunnel port).
+                                        if opts.role == "agent"
+                                            && opts.peer.is_some()
+                                            && src.port() == tunnel_port
+                                        {
+                                            let learned = SocketAddr::new(src.ip(), tunnel_port);
+                                            info!(
+                                                %learned,
+                                                from = %src,
+                                                was = %existing,
+                                                "desktop reply IP differs from --peer; switching"
+                                            );
+                                            *slot = Some(learned);
+                                            let _ = peer_watch_tx.send(Some(learned));
+                                            stats.reset_rx_sequence();
+                                            let mut st = state.write();
+                                            st.peer_endpoint = Some(learned.to_string());
+                                        } else if opts.peer.is_some() {
+                                            debug!(
+                                                %src,
+                                                expected = %existing,
+                                                "ignoring packet from non-peer IP"
+                                            );
+                                            stats.record_drop();
+                                            continue;
+                                        } else if opts.role == "gateway" {
+                                            // Another laptop appeared — take the new peer.
+                                            info!(%src, previous = %existing, "peer IP changed");
+                                            *slot = Some(src);
+                                            let _ = peer_watch_tx.send(Some(src));
+                                            stats.reset_rx_sequence();
+                                            let mut st = state.write();
+                                            st.peer_endpoint = Some(src.to_string());
+                                        }
+                                    } else {
+                                        if existing != src {
+                                            // NAT port change or second Client — resync loss tracking.
+                                            stats.reset_rx_sequence();
+                                        }
+                                        *slot = Some(src);
+                                        let mut st = state.write();
+                                        st.peer_endpoint = Some(src.to_string());
                                     }
-                                    *slot = Some(src);
                                 }
                             }
                             *last_peer_rx.write() = Instant::now();
 
+                            // Enforce encryption: with require_crypto, plaintext
+                            // frames are dropped instead of silently accepted.
+                            if opts.require_crypto
+                                && !TunnelFrame::is_encrypted_raw(&buf[..n]).unwrap_or(false)
+                            {
+                                warn!(%src, "dropping plaintext frame (require_crypto)");
+                                stats.record_drop();
+                                continue;
+                            }
+
                             let crypto = opts.crypto.as_ref();
                             match TunnelFrame::decode(&buf[..n], crypto) {
                                 Ok(frame) => {
-                                    stats.record_rx(n, Some(frame.header.sequence));
+                                    // Loss % tracks Ethernet data-plane only — control/keepalive
+                                    // flaps were inventing 90%+ "loss" on an otherwise fine tunnel.
+                                    let seq_for_loss =
+                                        if frame.header.frame_type == FrameType::Ethernet {
+                                            Some(frame.header.sequence)
+                                        } else {
+                                            None
+                                        };
+                                    stats.record_rx(n, seq_for_loss);
                                     match frame.header.frame_type {
                                         FrameType::Ethernet => {
                                             if let Err(e) = eth.send(frame.payload).await {
                                                 stats.record_error();
                                                 warn!(error = %e, "ethernet inject failed");
                                             } else {
-                                                let link = eth.link_up().await;
                                                 let mut st = state.write();
                                                 st.connection = ConnectionState::Connected;
                                                 st.laptop_connected = true;
                                                 st.status_message = "Connected".into();
-                                                st.vehicle.link_up = link;
+                                                // Gateway: car traffic via laptop ⇒ awake; link comes from Status.
+                                                if opts.role == "gateway" {
+                                                    st.vehicle.last_activity_ms = now_ms();
+                                                    if st.vehicle.link_up {
+                                                        st.vehicle.awake = true;
+                                                    }
+                                                }
                                             }
                                         }
                                         FrameType::Keepalive => {
                                             // Payload cookie: 0 = probe (reply), 1 = reply (do not re-reply)
                                             let is_reply = frame.payload.len() >= 8
                                                 && frame.payload.as_ref()[7] == 1;
-                                            let rtt = rtt_from_ts(frame.header.timestamp_ms_lo);
-                                            if rtt > 0.0 && is_reply {
-                                                stats.record_rtt_ms(rtt);
-                                            }
+                                            // Reply ASAP — Wi‑Fi sleep makes delayed replies look like 100ms+ RTT.
                                             if !is_reply {
                                                 let peer = *peer_slot.read();
                                                 if let Some(peer) = peer {
@@ -259,9 +343,18 @@ impl TunnelEngine {
                                                     }
                                                 }
                                             }
-                                            let mut st = state.write();
-                                            st.connection = ConnectionState::Connected;
-                                            st.laptop_connected = true;
+                                            let rtt = rtt_from_ts(frame.header.timestamp_ms_lo);
+                                            if rtt > 0.0 && is_reply {
+                                                stats.record_rtt_ms(rtt);
+                                                let mut st = state.write();
+                                                st.rtt_local_ms = rtt;
+                                                st.connection = ConnectionState::Connected;
+                                                st.laptop_connected = true;
+                                            } else {
+                                                let mut st = state.write();
+                                                st.connection = ConnectionState::Connected;
+                                                st.laptop_connected = true;
+                                            }
                                         }
                                         FrameType::Hello
                                         | FrameType::Status
@@ -270,12 +363,33 @@ impl TunnelEngine {
                                                 ControlPayload::from_bytes(&frame.payload)
                                             {
                                                 debug!(?ctrl, "control payload");
-                                                apply_control(&state, ctrl);
+                                                apply_control(&state, &opts.role, ctrl);
                                             }
-                                            let mut st = state.write();
-                                            st.connection = ConnectionState::Connected;
-                                            st.laptop_connected = true;
-                                            st.status_message = "Connected".into();
+                                            // Any control plane RX proves the path is live both ways.
+                                            {
+                                                let mut st = state.write();
+                                                st.connection = ConnectionState::Connected;
+                                                st.laptop_connected = true;
+                                                st.status_message = "Connected".into();
+                                            }
+                                            // ACK Hello immediately so the laptop leaves "waiting"
+                                            // even before the next keepalive tick (Wi‑Fi / firewall).
+                                            if frame.header.frame_type == FrameType::Hello {
+                                                let peer = *peer_slot.read();
+                                                if let Some(peer) = peer {
+                                                    let seq =
+                                                        tx_seq.fetch_add(1, Ordering::Relaxed);
+                                                    let reply = TunnelFrame::keepalive(
+                                                        seq,
+                                                        now_ms_lo(),
+                                                        1,
+                                                    );
+                                                    if let Ok(pkt) = reply.encode(crypto) {
+                                                        let _ = socket.send_to(&pkt, peer).await;
+                                                        stats.record_tx(pkt.len());
+                                                    }
+                                                }
+                                            }
                                         }
                                         FrameType::Goodbye => {
                                             info!("peer goodbye");
@@ -283,6 +397,11 @@ impl TunnelEngine {
                                             st.connection = ConnectionState::Reconnecting;
                                             st.laptop_connected = false;
                                             st.status_message = "Peer disconnected".into();
+                                            st.peer_endpoint = None;
+                                            if opts.role == "gateway" {
+                                                st.vehicle.link_up = false;
+                                                st.vehicle.awake = false;
+                                            }
                                         }
                                         FrameType::Ack => {}
                                     }
@@ -314,45 +433,97 @@ impl TunnelEngine {
             let state = self.state.clone();
             let eth = self.eth.clone();
             tokio::spawn(async move {
-                let interval = Duration::from_millis(opts.keepalive_interval_ms.max(200));
-                let timeout = Duration::from_millis(opts.peer_timeout_ms.max(1000));
+                // Agents probe often so the laptop Wi‑Fi radio stays awake; Status is less frequent.
+                let probe_ms = if opts.role == "agent" {
+                    opts.keepalive_interval_ms.clamp(200, 250)
+                } else {
+                    opts.keepalive_interval_ms.max(200)
+                };
+                let interval = Duration::from_millis(probe_ms);
+                let timeout = Duration::from_millis(if opts.role == "agent" {
+                    // Wi‑Fi sleep can starve RX for several seconds; don't flap to "waiting".
+                    opts.peer_timeout_ms.max(20_000)
+                } else {
+                    opts.peer_timeout_ms.max(1000)
+                });
+                let mut tick: u32 = 0;
                 while running.load(Ordering::SeqCst) {
                     tokio::time::sleep(interval).await;
-                    let link = eth.link_up().await;
-                    {
-                        let mut st = state.write();
-                        st.vehicle.link_up = link;
-                        if !link {
-                            st.vehicle.awake = false;
-                        }
-                    }
+                    tick = tick.wrapping_add(1);
                     let peer = *peer_slot.read();
                     if let Some(peer) = peer {
+                        // Send keepalive FIRST so RTT isn't delayed by link checks.
                         let seq = tx_seq.fetch_add(1, Ordering::Relaxed);
                         let frame = TunnelFrame::keepalive(seq, now_ms_lo(), 0);
                         if let Ok(pkt) = frame.encode(opts.crypto.as_ref()) {
                             let _ = socket.send_to(&pkt, peer).await;
                             stats.record_tx(pkt.len());
                         }
-                        let snap = stats.snapshot();
-                        let st = state.read().clone();
-                        let status = ControlPayload::Status {
-                            vehicle_link: st.vehicle.link_up,
-                            vehicle_awake: st.vehicle.awake,
-                            peer_connected: matches!(st.connection, ConnectionState::Connected),
-                            packets_tx: snap.tx_packets,
-                            packets_rx: snap.rx_packets,
-                            loss_rate: snap.loss_rate,
-                            rtt_ms: snap.rtt_ms,
-                        };
-                        if let Ok(payload) = status.to_bytes() {
-                            let seq = tx_seq.fetch_add(1, Ordering::Relaxed);
-                            let mut tf = TunnelFrame::keepalive(seq, now_ms_lo(), 0);
-                            tf.header.frame_type = FrameType::Status;
-                            tf.header.payload_len = payload.len() as u16;
-                            tf.payload = payload;
-                            if let Ok(pkt) = tf.encode(opts.crypto.as_ref()) {
-                                let _ = socket.send_to(&pkt, peer).await;
+                        // While still waiting, resend Hello so the desktop ACKs us.
+                        if opts.role == "agent"
+                            && tick % 5 == 1
+                            && !matches!(
+                                state.read().connection,
+                                ConnectionState::Connected
+                            )
+                        {
+                            let _ = send_hello(
+                                &socket,
+                                peer,
+                                &opts,
+                                &tx_seq,
+                                opts.crypto.as_ref(),
+                            )
+                            .await;
+                        }
+                    }
+                    // Only the laptop agent owns local ENET link state (cached / non-blocking).
+                    if opts.role == "agent" {
+                        let link = eth.link_up().await;
+                        let mut st = state.write();
+                        st.vehicle.link_up = link;
+                        if !link {
+                            st.vehicle.awake = false;
+                        } else if st.vehicle.awake {
+                            // Expire awake without recent frames (noise / unplugged car).
+                            let age = now_ms().saturating_sub(st.vehicle.last_activity_ms);
+                            if st.vehicle.last_activity_ms > 0 && age > 10_000 {
+                                st.vehicle.awake = false;
+                            }
+                        }
+                    }
+                    let send_status = opts.role != "agent" || tick % 4 == 0;
+                    let peer = *peer_slot.read();
+                    if send_status {
+                        if let Some(peer) = peer {
+                            let (rtt_ms, _rtt_p99, loss_rate) = stats.peek_quality();
+                            let st = state.read().clone();
+                            let status = ControlPayload::Status {
+                                vehicle_link: if opts.role == "agent" {
+                                    st.vehicle.link_up
+                                } else {
+                                    false
+                                },
+                                vehicle_awake: if opts.role == "agent" {
+                                    st.vehicle.awake
+                                } else {
+                                    false
+                                },
+                                peer_connected: matches!(st.connection, ConnectionState::Connected),
+                                packets_tx: stats.tx_packets(),
+                                packets_rx: stats.rx_packets(),
+                                loss_rate,
+                                rtt_ms,
+                            };
+                            if let Ok(payload) = status.to_bytes() {
+                                let seq = tx_seq.fetch_add(1, Ordering::Relaxed);
+                                let mut tf = TunnelFrame::keepalive(seq, now_ms_lo(), 0);
+                                tf.header.frame_type = FrameType::Status;
+                                tf.header.payload_len = payload.len() as u16;
+                                tf.payload = payload;
+                                if let Ok(pkt) = tf.encode(opts.crypto.as_ref()) {
+                                    let _ = socket.send_to(&pkt, peer).await;
+                                }
                             }
                         }
                     }
@@ -362,13 +533,20 @@ impl TunnelEngine {
                         warn!("peer timeout");
                         stats.record_reconnect();
                         let mut st = state.write();
-                        st.connection = ConnectionState::Reconnecting;
                         st.laptop_connected = false;
-                        st.status_message = "Peer timeout — reconnecting".into();
-                        drop(st);
-                        if opts.peer.is_none() {
-                            *peer_slot.write() = None;
+                        st.peer_endpoint = None;
+                        if opts.role == "gateway" {
+                            st.connection = ConnectionState::Reconnecting;
+                            st.status_message = "Peer timeout — reconnecting".into();
+                            st.vehicle.link_up = false;
+                            st.vehicle.awake = false;
+                        } else {
+                            // Agent: Host DHCP may have changed — fail out so outer loop re-discovers.
+                            st.connection = ConnectionState::Failed;
+                            st.status_message = "Peer timeout — re-detecting desktop IP".into();
                         }
+                        drop(st);
+                        *peer_slot.write() = None;
                     }
                 }
             })
@@ -416,18 +594,37 @@ async fn send_hello(
     Ok(())
 }
 
-fn apply_control(state: &Arc<RwLock<GatewayState>>, ctrl: ControlPayload) {
+fn apply_control(state: &Arc<RwLock<GatewayState>>, role: &str, ctrl: ControlPayload) {
     let mut st = state.write();
     match ctrl {
         ControlPayload::Status {
             vehicle_link,
             vehicle_awake,
-            peer_connected,
+            peer_connected: _,
+            rtt_ms,
             ..
         } => {
-            st.vehicle.link_up = vehicle_link;
-            st.vehicle.awake = vehicle_awake;
-            st.laptop_connected = peer_connected;
+            // Laptop agent is the authority for vehicle ENET / awake.
+            // Gateway accepts those fields; agent ignores the desktop's (often false) vehicle flags.
+            if role == "gateway" {
+                st.vehicle.link_up = vehicle_link;
+                st.vehicle.awake = vehicle_awake;
+                // Laptop's view of RTT (usually lower — it initiates TX and wakes Wi‑Fi).
+                if rtt_ms.is_finite() && rtt_ms > 0.0 {
+                    st.rtt_peer_ms = rtt_ms;
+                }
+            }
+            // peer_connected in Status is "what the sender thinks"; for gateway the
+            // presence of Status from the agent already means the laptop is up.
+            if role == "gateway" {
+                st.laptop_connected = true;
+            } else {
+                // Receiving Status from the desktop means the tunnel is up — don't
+                // require peer_connected (gateway may still be catching up).
+                st.laptop_connected = true;
+                st.connection = ConnectionState::Connected;
+                st.status_message = "Connected".into();
+            }
         }
         ControlPayload::Hello { hostname, role, .. } => {
             st.status_message = format!("Hello from {role}@{hostname}");

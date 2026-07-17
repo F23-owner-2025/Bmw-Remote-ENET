@@ -90,38 +90,52 @@ impl FlashSafetyChecker {
         if !peer_connected {
             reasons.push("Tunnel peer is not connected".into());
         }
+
+        let vehicle_ready = vehicle.link_up && vehicle.awake;
         if !vehicle.link_up {
-            reasons.push("Vehicle ENET link is down".into());
+            reasons.push("Vehicle ENET link is down — plug ENET into the car + laptop".into());
+        } else if !vehicle.awake {
+            reasons.push("Vehicle appears asleep — turn ignition ON".into());
         }
-        if !vehicle.awake {
-            reasons.push("Vehicle appears asleep (no recent ENET activity)".into());
-        }
-        if stats.rtt_p99_ms > self.thresholds.max_rtt_p99_ms {
-            reasons.push(format!(
-                "RTT p99 {:.2} ms exceeds limit {:.2} ms",
-                stats.rtt_p99_ms, self.thresholds.max_rtt_p99_ms
-            ));
-        }
-        if stats.loss_rate > self.thresholds.max_loss_rate {
-            reasons.push(format!(
-                "Packet loss {:.4}% exceeds limit {:.4}%",
-                stats.loss_rate * 100.0,
-                self.thresholds.max_loss_rate * 100.0
-            ));
-        }
-        if cpu_pct > self.thresholds.max_cpu_pct {
-            reasons.push(format!(
-                "Host CPU {:.1}% exceeds limit {:.1}%",
-                cpu_pct, self.thresholds.max_cpu_pct
-            ));
-        }
-        if stats.rx_packets < self.thresholds.min_rtt_samples_hint as u64 {
-            reasons.push("Insufficient traffic samples to certify link quality".into());
+
+        // Until the car is online, idle Wi‑Fi keepalive spikes (3↔100ms) are normal and
+        // must not dominate the flash-safety message. Quality is certified after ENET is up.
+        if vehicle_ready {
+            // Prefer p50 when p99 is a Wi‑Fi sleep outlier (p99 >> p50).
+            let rtt_for_gate = effective_rtt_ms(stats);
+            if rtt_for_gate > self.thresholds.max_rtt_p99_ms && rtt_for_gate > 0.0 {
+                reasons.push(format!(
+                    "RTT {:.2} ms exceeds limit {:.2} ms",
+                    rtt_for_gate, self.thresholds.max_rtt_p99_ms
+                ));
+            }
+            if stats.loss_rate > self.thresholds.max_loss_rate && stats.rx_pps + stats.tx_pps > 0.5
+            {
+                reasons.push(format!(
+                    "Packet loss {:.4}% exceeds limit {:.4}%",
+                    stats.loss_rate * 100.0,
+                    self.thresholds.max_loss_rate * 100.0
+                ));
+            }
+            if cpu_pct > self.thresholds.max_cpu_pct {
+                reasons.push(format!(
+                    "Host CPU {:.1}% exceeds limit {:.1}%",
+                    cpu_pct, self.thresholds.max_cpu_pct
+                ));
+            }
+            if stats.rx_packets < self.thresholds.min_rtt_samples_hint as u64 {
+                reasons.push("Insufficient traffic samples to certify link quality".into());
+            }
         }
 
         let safe = reasons.is_empty();
         let warning = if safe {
             "Connection quality is within flash-safe thresholds. Proceed only if you accept the risk of remote flashing.".into()
+        } else if !vehicle_ready && peer_connected {
+            format!(
+                "Not ready to flash yet — {}. Tunnel quality is checked after the vehicle is online. Do not start ECU programming.",
+                reasons.join("; ")
+            )
         } else {
             format!(
                 "FLASHING NOT RECOMMENDED: {}. Do not start ECU programming until these are resolved.",
@@ -139,6 +153,20 @@ impl FlashSafetyChecker {
             vehicle_awake: vehicle.awake,
             warning,
         }
+    }
+}
+
+/// When Wi‑Fi power-save creates rare ~100ms spikes, p99 stays ugly while p50 tracks the
+/// real working latency (and matches continuous ping / ISTA load).
+fn effective_rtt_ms(stats: &StatsSnapshot) -> f64 {
+    let p50 = stats.rtt_p50_ms;
+    let p99 = stats.rtt_p99_ms;
+    let last = stats.rtt_ms;
+    if p50 > 0.0 && p99 > p50 * 3.0 && p99 > 40.0 {
+        // Spiky idle link — gate on p50/last, not the sleep outlier.
+        p50.max(last.min(p50 * 2.0))
+    } else {
+        p99.max(last)
     }
 }
 
@@ -208,5 +236,30 @@ mod tests {
         let report = checker.evaluate(&stats, &vehicle, 10.0, true);
         assert!(!report.safe);
         assert!(!report.reasons.is_empty());
+    }
+
+    #[test]
+    fn vehicle_down_skips_rtt_noise() {
+        let checker = FlashSafetyChecker::new(SafetyThresholds {
+            max_rtt_p99_ms: 20.0,
+            max_loss_rate: 0.001,
+            max_cpu_pct: 80.0,
+            min_rtt_samples_hint: 20,
+        });
+        let mut stats = good_stats();
+        stats.rtt_p99_ms = 92.0;
+        stats.rtt_ms = 3.0;
+        let vehicle = VehicleState {
+            link_up: false,
+            awake: false,
+            last_activity_ms: 0,
+            discovered_ip: None,
+            vin: None,
+        };
+        let report = checker.evaluate(&stats, &vehicle, 10.0, true);
+        assert!(!report.safe);
+        assert!(report.reasons.iter().all(|r| r.contains("ENET") || r.contains("asleep") || r.contains("ignition") || r.contains("plug")));
+        assert!(!report.warning.contains("exceeds limit"));
+        assert!(report.warning.contains("vehicle is online") || report.warning.contains("Not ready"));
     }
 }

@@ -1,10 +1,10 @@
 # Build and publish the Windows setup wizard + Host/Client packages.
 #
 # Artifacts:
-#   BMW-ENET-Setup.exe                  — single wizard (Host or Client)
+#   BMW-ENET-Setup.exe                  — self-contained wizard (Host/Client packages embedded)
 #   BMW-ENET-Host-windows-x64.zip       — desktop package
 #   BMW-ENET-Client-windows-x64.zip     — laptop package
-#   BMW-ENET-Windows-Installer.zip      — Setup.exe + both zips (offline-friendly)
+#   BMW-ENET-Windows-Installer.zip      — Setup.exe + both zips
 
 name: Windows installer
 
@@ -26,48 +26,159 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build release binaries
+      - name: Install Npcap SDK (link wpcap for Host/Client L2)
+        shell: pwsh
+        run: |
+          $sdk = "https://npcap.com/dist/npcap-sdk-1.13.zip"
+          $zip = "$env:RUNNER_TEMP\npcap-sdk.zip"
+          $out = "$env:RUNNER_TEMP\npcap-sdk"
+          Invoke-WebRequest -Uri $sdk -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $out -Force
+          $lib = Join-Path $out "Lib\x64"
+          if (-not (Test-Path $lib)) { $lib = Join-Path $out "Lib" }
+          echo "LIB=$lib" >> $env:GITHUB_ENV
+          echo "NPCAP_LIB_DIR=$lib" >> $env:GITHUB_ENV
+          Get-ChildItem -Recurse $out | Select-Object -First 40 FullName
+
+      - name: Build role binaries
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: |
           cargo build --release `
             -p enet-setup `
             -p enet-gateway `
             -p enet-agent `
             -p enet-gui `
-            -p enet-relay `
-            -p enet-installer
+            -p enet-relay
 
-      - name: Stage Host package
+      - name: Stage Host and Client packages
         shell: pwsh
         run: |
-          $hostDir = "dist/host"
-          New-Item -ItemType Directory -Force -Path $hostDir | Out-Null
-          Copy-Item target/release/enet-gateway.exe $hostDir/
-          Copy-Item target/release/enet-setup.exe $hostDir/
-          Copy-Item target/release/enet-gui.exe $hostDir/
-          if (Test-Path config) { Copy-Item -Recurse config $hostDir/config }
-          Compress-Archive -Path "$hostDir/*" -DestinationPath dist/BMW-ENET-Host-windows-x64.zip -Force
+          New-Item -ItemType Directory -Force -Path dist/host, dist/client, crates/enet-installer/embedded | Out-Null
 
-      - name: Stage Client package
+          Copy-Item target/release/enet-gateway.exe dist/host/
+          Copy-Item target/release/enet-setup.exe dist/host/
+          Copy-Item target/release/enet-gui.exe dist/host/
+          if (Test-Path config) { Copy-Item -Recurse config dist/host/config }
+
+          Copy-Item target/release/enet-agent.exe dist/client/
+          Copy-Item target/release/enet-setup.exe dist/client/
+          if (Test-Path config) { Copy-Item -Recurse config dist/client/config }
+
+          Compress-Archive -Path "dist/host/*" -DestinationPath dist/BMW-ENET-Host-windows-x64.zip -Force
+          Compress-Archive -Path "dist/client/*" -DestinationPath dist/BMW-ENET-Client-windows-x64.zip -Force
+
+          # Bake packages into Setup.exe (required for private GitHub repos)
+          Copy-Item dist/BMW-ENET-Host-windows-x64.zip crates/enet-installer/embedded/ -Force
+          Copy-Item dist/BMW-ENET-Client-windows-x64.zip crates/enet-installer/embedded/ -Force
+
+      - name: Build self-contained Setup wizard
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release -p enet-installer --features embed
+
+      - name: Integration smoke test (Host + Client, simulate mode)
         shell: pwsh
         run: |
-          $clientDir = "dist/client"
-          New-Item -ItemType Directory -Force -Path $clientDir | Out-Null
-          Copy-Item target/release/enet-agent.exe $clientDir/
-          Copy-Item target/release/enet-setup.exe $clientDir/
-          if (Test-Path config) { Copy-Item -Recurse config $clientDir/config }
-          Compress-Archive -Path "$clientDir/*" -DestinationPath dist/BMW-ENET-Client-windows-x64.zip -Force
+          # Absolute exe paths: Start-Process resolves relative FilePath against WorkingDirectory.
+          $root = (Resolve-Path .).Path
+          $gwExe = Join-Path $root "target\release\enet-gateway.exe"
+          $agExe = Join-Path $root "target\release\enet-agent.exe"
+          if (-not (Test-Path $gwExe)) { throw "missing $gwExe" }
+          if (-not (Test-Path $agExe)) { throw "missing $agExe" }
 
-      - name: Stage Setup wizard
+          New-Item -ItemType Directory -Force -Path smoke/host/config, smoke/client/config, smoke/host/logs, smoke/client/logs | Out-Null
+          # No GitHub dependency inside CI: disable the self-updater.
+          # Npcap is not installed on runners; --simulate must work without wpcap.dll.
+          @"
+          role = "gateway"
+          auto_update = false
+          "@ | Set-Content smoke/host/config/gateway.toml
+          @"
+          role = "agent"
+          auto_update = false
+          "@ | Set-Content smoke/client/config/agent.toml
+
+          $gwOut = Join-Path $root "smoke\host\stdout.txt"
+          $gwErr = Join-Path $root "smoke\host\stderr.txt"
+          $agOut = Join-Path $root "smoke\client\stdout.txt"
+          $agErr = Join-Path $root "smoke\client\stderr.txt"
+
+          $gw = Start-Process -FilePath $gwExe `
+            -ArgumentList @("--config","config/gateway.toml","--simulate","--quiet") `
+            -WorkingDirectory (Join-Path $root "smoke\host") `
+            -RedirectStandardOutput $gwOut -RedirectStandardError $gwErr `
+            -PassThru
+          Write-Host "Host PID $($gw.Id)"
+
+          $pair = $null
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 1
+            if ($gw.HasExited) {
+              Write-Host "=== Host stdout ==="; Get-Content $gwOut -ErrorAction SilentlyContinue
+              Write-Host "=== Host stderr ==="; Get-Content $gwErr -ErrorAction SilentlyContinue
+              throw "Host exited early with code $($gw.ExitCode)"
+            }
+            try {
+              $st = Invoke-RestMethod http://127.0.0.1:47901/api/status -TimeoutSec 2
+              if ($st.pair_code) { $pair = $st.pair_code; break }
+            } catch {}
+          }
+          if (-not $pair) {
+            Write-Host "=== Host stdout ==="; Get-Content $gwOut -ErrorAction SilentlyContinue
+            Write-Host "=== Host stderr ==="; Get-Content $gwErr -ErrorAction SilentlyContinue
+            if (Test-Path smoke/host/logs) { Get-ChildItem smoke/host/logs -Recurse | ForEach-Object { Write-Host $_.FullName; Get-Content $_.FullName -Tail 80 } }
+            Stop-Process -Id $gw.Id -Force -ErrorAction SilentlyContinue
+            throw "Host API never came up / no pair code (HasExited=$($gw.HasExited))"
+          }
+          Write-Host "Host up, pair $pair"
+
+          $ag = Start-Process -FilePath $agExe `
+            -ArgumentList @("--config","config/agent.toml","--simulate","--peer","127.0.0.1","--pair-code",$pair) `
+            -WorkingDirectory (Join-Path $root "smoke\client") `
+            -RedirectStandardOutput $agOut -RedirectStandardError $agErr `
+            -PassThru
+          Write-Host "Client PID $($ag.Id)"
+
+          $connected = $false
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 1
+            if ($ag.HasExited) {
+              Write-Host "=== Client stdout ==="; Get-Content $agOut -ErrorAction SilentlyContinue
+              Write-Host "=== Client stderr ==="; Get-Content $agErr -ErrorAction SilentlyContinue
+              throw "Client exited early with code $($ag.ExitCode)"
+            }
+            try {
+              $s = Invoke-RestMethod http://127.0.0.1:47901/api/status -TimeoutSec 2
+              if ($s.state.laptop_connected) { $connected = $true; break }
+            } catch {}
+          }
+          Stop-Process -Id $ag.Id -Force -ErrorAction SilentlyContinue
+          Stop-Process -Id $gw.Id -Force -ErrorAction SilentlyContinue
+          if (-not $connected) {
+            Write-Host "=== Client stdout ==="; Get-Content $agOut -ErrorAction SilentlyContinue
+            Write-Host "=== Client stderr ==="; Get-Content $agErr -ErrorAction SilentlyContinue
+            throw "Smoke test failed: Client never connected to Host"
+          }
+          Write-Host "Smoke test OK: tunnel connected"
+
+      - name: Stage release files
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item target/release/BMW-ENET-Setup.exe dist/BMW-ENET-Setup.exe
-          # Offline bundle: wizard + both role packages in one zip
+          Copy-Item target/release/BMW-ENET-Setup.exe dist/BMW-ENET-Setup.exe -Force
           Compress-Archive -Path @(
             "dist/BMW-ENET-Setup.exe",
             "dist/BMW-ENET-Host-windows-x64.zip",
             "dist/BMW-ENET-Client-windows-x64.zip"
           ) -DestinationPath dist/BMW-ENET-Windows-Installer.zip -Force
+          # SHA-256 checksums — the self-updater verifies downloads against this file.
+          $lines = @()
+          foreach ($f in @("BMW-ENET-Setup.exe","BMW-ENET-Host-windows-x64.zip","BMW-ENET-Client-windows-x64.zip","BMW-ENET-Windows-Installer.zip")) {
+            $h = (Get-FileHash "dist/$f" -Algorithm SHA256).Hash.ToLower()
+            $lines += "$h  $f"
+          }
+          $lines | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+          Get-Content dist/SHA256SUMS.txt
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -78,6 +189,7 @@ jobs:
             dist/BMW-ENET-Host-windows-x64.zip
             dist/BMW-ENET-Client-windows-x64.zip
             dist/BMW-ENET-Windows-Installer.zip
+            dist/SHA256SUMS.txt
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -88,6 +200,7 @@ jobs:
             dist/BMW-ENET-Host-windows-x64.zip
             dist/BMW-ENET-Client-windows-x64.zip
             dist/BMW-ENET-Windows-Installer.zip
+            dist/SHA256SUMS.txt
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
