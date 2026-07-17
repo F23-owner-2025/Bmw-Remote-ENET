@@ -2,7 +2,7 @@
 
 > **DO NOT DOWNLOAD — STILL IN TESTING.**  
 > Using this against a real vehicle can damage ECUs or brick the car. Do not flash or run diagnostics on a car you care about until testing is finished.
-
+buymeacoffee.com/Ryan_Duntley
 Run BMW tools (**ISTA / E-Sys / etc.**) on your desktop while the **ENET cable** stays on a laptop at the car.
 
 ```
