@@ -89,15 +89,18 @@ fn getrandom_fill(buf: &mut [u8]) -> Result<(), ()> {
     }
     #[cfg(windows)]
     {
-        // Simple time-based fill when /dev/urandom is unavailable.
-        let t = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        for (i, b) in buf.iter_mut().enumerate() {
-            *b = ((t >> (i * 8)) as u8).wrapping_add(i as u8).wrapping_mul(31);
+        // RtlGenRandom — CSPRNG available on every supported Windows.
+        #[link(name = "advapi32")]
+        extern "system" {
+            #[link_name = "SystemFunction036"]
+            fn rtl_gen_random(buf: *mut u8, len: u32) -> u8;
         }
-        Ok(())
+        let ok = unsafe { rtl_gen_random(buf.as_mut_ptr(), buf.len() as u32) };
+        if ok != 0 {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
     #[cfg(not(any(unix, windows)))]
     {

@@ -37,14 +37,27 @@ pub fn looks_like_enet_subnet(ip: IpAddr) -> bool {
 /// On CI/Linux without real ENET hardware this still returns available NICs so
 /// auto-detection logic and the simulator can be exercised.
 pub fn detect_candidate_interfaces() -> Vec<InterfaceInfo> {
-    // sysinfo 0.33 Networks API
+    // Per-interface IPv4 addresses (if_addrs) — the 169.254.x link-local
+    // signal is the strongest ENET hint, so this must be populated.
+    let mut addrs_by_name: std::collections::HashMap<String, Vec<IpAddr>> =
+        std::collections::HashMap::new();
+    if let Ok(ifaces) = if_addrs::get_if_addrs() {
+        for iface in ifaces {
+            if let if_addrs::IfAddr::V4(v4) = &iface.addr {
+                addrs_by_name
+                    .entry(iface.name.clone())
+                    .or_default()
+                    .push(IpAddr::V4(v4.ip));
+            }
+        }
+    }
+
+    // sysinfo 0.33 Networks API for MAC + traffic counters.
     let networks = sysinfo::Networks::new_with_refreshed_list();
     let mut out = Vec::new();
     for (name, data) in networks.list() {
         let mac = format!("{}", data.mac_address());
-        // sysinfo does not always expose IP list uniformly across versions;
-        // we fill what we can and rely on OS-specific enrichment later.
-        let ipv4: Vec<IpAddr> = Vec::new();
+        let ipv4 = addrs_by_name.remove(name).unwrap_or_default();
         let has_link_local = ipv4.iter().copied().any(looks_like_enet_subnet);
         out.push(InterfaceInfo {
             name: name.clone(),
@@ -52,6 +65,18 @@ pub fn detect_candidate_interfaces() -> Vec<InterfaceInfo> {
             mac,
             ipv4,
             is_up: data.total_received() > 0 || data.total_transmitted() > 0,
+            has_link_local,
+        });
+    }
+    // Interfaces if_addrs saw but sysinfo missed.
+    for (name, ipv4) in addrs_by_name {
+        let has_link_local = ipv4.iter().copied().any(looks_like_enet_subnet);
+        out.push(InterfaceInfo {
+            name,
+            description: String::new(),
+            mac: String::new(),
+            ipv4,
+            is_up: true,
             has_link_local,
         });
     }

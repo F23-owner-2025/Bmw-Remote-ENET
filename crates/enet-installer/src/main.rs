@@ -57,9 +57,11 @@ struct SetupApp {
     peer: String,
     password: String,
     start_service: bool,
+    start_now: bool,
     open_dashboard: bool,
     repo: String,
     setup_dir: PathBuf,
+    npcap_present: Option<bool>,
     progress: Arc<Mutex<SharedProgress>>,
     worker_started: bool,
 }
@@ -77,9 +79,11 @@ impl SetupApp {
             peer: String::new(),
             password: String::new(),
             start_service: true,
+            start_now: true,
             open_dashboard: true,
             repo,
             setup_dir,
+            npcap_present: install::npcap_present(),
             progress: Arc::new(Mutex::new(SharedProgress {
                 message: String::new(),
                 done: 0,
@@ -110,6 +114,7 @@ impl SetupApp {
             peer: self.peer.clone(),
             password: self.password.clone(),
             start_service: self.start_service,
+            start_now: self.start_now,
             open_dashboard: self.open_dashboard,
         };
 
@@ -176,6 +181,71 @@ impl SetupApp {
     }
 }
 
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(74, 168, 199);
+const OK_GREEN: egui::Color32 = egui::Color32::from_rgb(51, 194, 116);
+const WARN_AMBER: egui::Color32 = egui::Color32::from_rgb(230, 164, 59);
+const ERR_RED: egui::Color32 = egui::Color32::from_rgb(220, 80, 66);
+
+fn step_header(ui: &mut egui::Ui, current: Step) {
+    let steps = [
+        (Step::Welcome, "Welcome"),
+        (Step::ChooseRole, "Role"),
+        (Step::Options, "Options"),
+        (Step::Working, "Install"),
+    ];
+    let active_idx = match current {
+        Step::Welcome => 0,
+        Step::ChooseRole => 1,
+        Step::Options => 2,
+        Step::Working | Step::Done | Step::Error => 3,
+    };
+    ui.horizontal(|ui| {
+        for (i, (_, label)) in steps.iter().enumerate() {
+            let done = i < active_idx;
+            let active = i == active_idx;
+            let (fg, text) = if active {
+                (ACCENT, format!("● {label}"))
+            } else if done {
+                (OK_GREEN, format!("✔ {label}"))
+            } else {
+                (egui::Color32::from_rgb(120, 132, 148), format!("○ {label}"))
+            };
+            ui.colored_label(fg, egui::RichText::new(text).size(13.0));
+            if i + 1 < steps.len() {
+                ui.colored_label(egui::Color32::from_rgb(70, 80, 95), "—");
+            }
+        }
+    });
+}
+
+fn role_card(ui: &mut egui::Ui, selected: bool, title: &str, lines: &[&str]) -> bool {
+    let stroke = if selected {
+        egui::Stroke::new(1.5_f32, ACCENT)
+    } else {
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(70, 80, 95))
+    };
+    let fill = if selected {
+        egui::Color32::from_rgb(26, 44, 54)
+    } else {
+        egui::Color32::from_rgb(28, 33, 41)
+    };
+    let resp = egui::Frame::group(ui.style())
+        .fill(fill)
+        .stroke(stroke)
+        .rounding(10.0)
+        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .show(ui, |ui| {
+            ui.set_min_width(220.0);
+            ui.label(egui::RichText::new(title).strong().size(15.0));
+            for l in lines {
+                ui.label(egui::RichText::new(*l).size(12.0).color(egui::Color32::from_rgb(150, 162, 178)));
+            }
+        })
+        .response
+        .interact(egui::Sense::click());
+    resp.clicked()
+}
+
 impl eframe::App for SetupApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Poll worker
@@ -193,124 +263,170 @@ impl eframe::App for SetupApp {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add_space(12.0);
-            ui.heading("BMW ENET Gateway Setup");
-            ui.label("Install the Host on your desktop (ISTA / E-Sys) or the Client on the laptop at the car.");
-            ui.add_space(8.0);
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("BMW ENET Gateway Setup").heading().strong());
+            });
+            ui.label(
+                egui::RichText::new("Host on the ISTA / E-Sys desktop · Client on the laptop at the car")
+                    .size(12.5)
+                    .color(egui::Color32::from_rgb(150, 162, 178)),
+            );
+            ui.add_space(6.0);
+            step_header(ui, self.step);
+            ui.add_space(6.0);
             ui.separator();
-            ui.add_space(12.0);
+            ui.add_space(10.0);
 
             match self.step {
                 Step::Welcome => {
-                    ui.label("This wizard installs either the Host or the Client on this PC.");
-                    ui.label("You do not need Rust, Git, or .bat scripts.");
+                    ui.label("This wizard installs everything — no Rust, Git, or scripts needed.");
                     ui.add_space(8.0);
                     if download::has_embedded_packages() {
                         ui.colored_label(
-                            egui::Color32::from_rgb(40, 140, 80),
-                            "This Setup.exe includes the Host and Client packages (works offline / private repos).",
+                            OK_GREEN,
+                            "✔ Host and Client packages are built into this Setup.exe (works offline).",
                         );
                     } else {
-                        ui.label("Packages will be loaded from files next to this Setup.exe, or downloaded if the repo is public.");
+                        ui.label("Packages load from files next to Setup.exe, or download if the repo is public.");
+                    }
+                    match self.npcap_present {
+                        Some(true) => {
+                            ui.colored_label(OK_GREEN, "✔ Npcap detected — ISTA car traffic will work.");
+                        }
+                        Some(false) => {
+                            ui.colored_label(
+                                WARN_AMBER,
+                                "⚠ Npcap not detected. Setup will open npcap.com — install it (WinPcap mode) for ISTA.",
+                            );
+                        }
+                        None => {}
                     }
                     ui.add_space(8.0);
-                    ui.label("Requirements:");
-                    ui.label("• Windows 10/11 x64");
-                    ui.label("• Administrator approval (UAC)");
+                    ui.label("Requirements: Windows 10/11 x64 · Administrator approval (UAC)");
                     ui.add_space(16.0);
-                    if ui.button("Continue").clicked() {
+                    if ui
+                        .add(egui::Button::new(egui::RichText::new("Continue  →").strong()).min_size([120.0, 32.0].into()))
+                        .clicked()
+                    {
                         self.step = Step::ChooseRole;
                     }
                 }
                 Step::ChooseRole => {
-                    ui.label("Which PC is this?");
-                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("Which PC is this?").strong().size(15.0));
+                    ui.add_space(10.0);
 
                     ui.horizontal(|ui| {
-                        let host = ui.selectable_label(
+                        if role_card(
+                            ui,
                             self.role == Role::Host,
-                            "Host (Desktop)",
-                        );
-                        if host.clicked() {
+                            "🖥  Host — Desktop",
+                            &[
+                                "Runs ISTA+, E-Sys, BimmerUtility",
+                                "Gateway + browser dashboard :47901",
+                                "Creates BMW-ENET adapter for ISTA",
+                            ],
+                        ) {
                             self.role = Role::Host;
                         }
-                        let client = ui.selectable_label(
+                        ui.add_space(8.0);
+                        if role_card(
+                            ui,
                             self.role == Role::Client,
-                            "Client (Laptop)",
-                        );
-                        if client.clicked() {
+                            "💻  Client — Laptop",
+                            &[
+                                "Stays at the car with the ENET cable",
+                                "Status page :47903, auto-finds Host",
+                                "Forwards car frames over Wi‑Fi",
+                            ],
+                        ) {
                             self.role = Role::Client;
                         }
                     });
-                    ui.add_space(8.0);
-
-                    match self.role {
-                        Role::Host => {
-                            ui.label("Host installs the desktop gateway + browser dashboard.");
-                            ui.label("Run this on the PC that has ISTA+, E-Sys, BimmerUtility, etc.");
-                        }
-                        Role::Client => {
-                            ui.label("Client installs the laptop agent for the ENET (OBD) cable.");
-                            ui.label("Run this on the PC that stays near the car.");
-                        }
-                    }
 
                     ui.add_space(16.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Back").clicked() {
+                        if ui.button("←  Back").clicked() {
                             self.step = Step::Welcome;
                         }
-                        if ui.button("Next").clicked() {
+                        if ui
+                            .add(egui::Button::new(egui::RichText::new("Next  →").strong()).min_size([100.0, 30.0].into()))
+                            .clicked()
+                        {
                             self.step = Step::Options;
                         }
                     });
                 }
                 Step::Options => {
-                    ui.label(format!("Role: {}", self.role.label()));
-                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(format!("Installing: {}", self.role.label()))
+                            .strong()
+                            .color(ACCENT),
+                    );
+                    ui.add_space(10.0);
 
                     if self.role == Role::Client {
-                        ui.label("Desktop LAN IP (optional — usually auto-detected):");
-                        ui.text_edit_singleline(&mut self.peer);
-                        ui.small("Leave blank: Client finds the Host by pair code even when DHCP changes.");
-                        ui.small("Only fill this if Auto-find fails (Wi‑Fi guest / AP isolation).");
-                        ui.add_space(6.0);
-                        ui.label("Pair code from the Host dashboard (recommended):");
-                        ui.text_edit_singleline(&mut self.pair_code);
-                        ui.add_space(6.0);
+                        ui.group(|ui| {
+                            ui.label(egui::RichText::new("Pairing").strong());
+                            ui.add_space(4.0);
+                            ui.label("Pair code from the Host dashboard (recommended):");
+                            ui.add(egui::TextEdit::singleline(&mut self.pair_code).hint_text("BMW-XXXX"));
+                            ui.add_space(6.0);
+                            ui.label("Desktop IP hint (optional — auto-detected by pair code):");
+                            ui.add(egui::TextEdit::singleline(&mut self.peer).hint_text("leave blank for auto-find"));
+                            ui.small("Only needed if Auto-find fails (Guest Wi‑Fi / AP isolation).");
+                        });
+                        ui.add_space(8.0);
                     }
 
-                    ui.label("Optional shared password (recommended for Internet / relay):");
-                    ui.text_edit_singleline(&mut self.password);
-                    ui.add_space(6.0);
-
-                    ui.checkbox(
-                        &mut self.start_service,
-                        "Start now and auto-start at boot (recommended)",
-                    );
-                    if self.role == Role::Host {
-                        ui.checkbox(
-                            &mut self.open_dashboard,
-                            "Open dashboard when finished (http://127.0.0.1:47901/)",
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("Security").strong());
+                        ui.add_space(4.0);
+                        ui.label("Shared password (optional; recommended for Internet / relay):");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.password)
+                                .password(true)
+                                .hint_text("empty = no encryption on LAN"),
                         );
-                    } else {
-                        ui.checkbox(
-                            &mut self.open_dashboard,
-                            "Open Client status when finished (http://127.0.0.1:47903/)",
-                        );
-                    }
-
+                    });
                     ui.add_space(8.0);
+
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("Launch").strong());
+                        ui.add_space(4.0);
+                        ui.checkbox(&mut self.start_now, "Start now");
+                        ui.checkbox(&mut self.start_service, "Auto-start at boot (recommended)");
+                        let open_label = if self.role == Role::Host {
+                            "Open dashboard when finished (http://127.0.0.1:47901/)"
+                        } else {
+                            "Open Client status when finished (http://127.0.0.1:47903/)"
+                        };
+                        ui.checkbox(&mut self.open_dashboard, open_label);
+                    });
+
+                    if self.npcap_present == Some(false) {
+                        ui.add_space(6.0);
+                        ui.colored_label(
+                            WARN_AMBER,
+                            "⚠ Npcap missing — Setup will open the download page. ISTA needs it on BOTH PCs.",
+                        );
+                    }
+
+                    ui.add_space(6.0);
                     ui.small(format!("Release source: github.com/{}", self.repo));
                     ui.small(format!("Setup folder: {}", self.setup_dir.display()));
 
-                    ui.add_space(16.0);
+                    ui.add_space(14.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Back").clicked() {
+                        if ui.button("←  Back").clicked() {
                             self.step = Step::ChooseRole;
                         }
                         if ui
-                            .add(egui::Button::new("Install").fill(egui::Color32::from_rgb(20, 120, 80)))
+                            .add(
+                                egui::Button::new(egui::RichText::new("Install").strong().size(15.0))
+                                    .fill(egui::Color32::from_rgb(20, 120, 80))
+                                    .min_size([130.0, 34.0].into()),
+                            )
                             .clicked()
                         {
                             self.start_worker();
@@ -323,9 +439,8 @@ impl eframe::App for SetupApp {
                         .lock()
                         .map(|p| (p.message.clone(), p.done, p.total))
                         .unwrap_or_default();
-                    ui.label("Working — please wait...");
-                    ui.add_space(8.0);
-                    ui.label(&msg);
+                    ui.label(egui::RichText::new("Installing…").strong().size(15.0));
+                    ui.add_space(10.0);
                     if total > 0 {
                         let frac = (done as f32 / total as f32).clamp(0.0, 1.0);
                         ui.add(egui::ProgressBar::new(frac).text(format!(
@@ -336,6 +451,8 @@ impl eframe::App for SetupApp {
                     } else {
                         ui.add(egui::ProgressBar::new(0.4).animate(true));
                     }
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(&msg).size(13.0).color(egui::Color32::from_rgb(150, 162, 178)));
                 }
                 Step::Done => {
                     let summary = self
@@ -343,11 +460,16 @@ impl eframe::App for SetupApp {
                         .lock()
                         .map(|p| p.result_summary.clone())
                         .unwrap_or_default();
-                    ui.colored_label(egui::Color32::from_rgb(40, 160, 90), "Success");
-                    ui.add_space(8.0);
-                    ui.label(summary);
-                    ui.add_space(16.0);
-                    if ui.button("Close").clicked() {
+                    ui.colored_label(OK_GREEN, egui::RichText::new("✔ Installation complete").strong().size(16.0));
+                    ui.add_space(10.0);
+                    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                        ui.label(summary);
+                    });
+                    ui.add_space(14.0);
+                    if ui
+                        .add(egui::Button::new(egui::RichText::new("Close").strong()).min_size([110.0, 30.0].into()))
+                        .clicked()
+                    {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 }
@@ -357,18 +479,20 @@ impl eframe::App for SetupApp {
                         .lock()
                         .map(|p| p.error.clone())
                         .unwrap_or_default();
-                    ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "Setup failed");
+                    ui.colored_label(ERR_RED, egui::RichText::new("✕ Setup failed").strong().size(16.0));
                     ui.add_space(8.0);
-                    ui.label(&err);
+                    egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                        ui.label(&err);
+                    });
                     ui.add_space(8.0);
                     ui.label("Tips:");
                     ui.label("• Run as Administrator");
                     ui.label("• Prefer the Setup.exe from the latest Release (packages are built in)");
                     ui.label("• Or extract BMW-ENET-Windows-Installer.zip and keep the role zip next to Setup.exe");
                     ui.label("• Private GitHub repos cannot be downloaded anonymously");
-                    ui.add_space(16.0);
+                    ui.add_space(14.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Back").clicked() {
+                        if ui.button("←  Back").clicked() {
                             self.worker_started = false;
                             if let Ok(mut p) = self.progress.lock() {
                                 p.finished = false;
@@ -419,7 +543,8 @@ fn main() -> eframe::Result<()> {
                         peer: args.peer,
                         password: args.password,
                         start_service: true,
-                        open_dashboard: role == Role::Host,
+                        start_now: true,
+                        open_dashboard: true,
                     },
                     &pkg,
                     &progress,

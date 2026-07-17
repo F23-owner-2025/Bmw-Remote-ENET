@@ -3,27 +3,33 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>BMW ENET Gateway</title>
+<title>BMW ENET Gateway — Host</title>
 <style>
   :root {
-    --bg: #0f1216;
-    --panel: #171b21;
-    --card: #1c222b;
-    --border: #2a3340;
-    --text: #e8edf4;
-    --muted: #8b9aab;
-    --ok: #2fbf71;
-    --warn: #e0a03a;
-    --bad: #e05a4a;
-    --accent: #3d9bb8;
+    --bg: #0d1117;
+    --panel: #151b23;
+    --card: #1a222c;
+    --card-hi: #202a36;
+    --border: #2a3441;
+    --border-hi: #3a4757;
+    --text: #e9eef5;
+    --muted: #8d9cae;
+    --ok: #33c274;
+    --warn: #e6a43b;
+    --bad: #e25a4a;
+    --accent: #4aa8c7;
     --accent-dim: #2a6f84;
+    --radius: 12px;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
     margin: 0;
     font-family: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
-    background: var(--bg);
+    background:
+      radial-gradient(1100px 500px at 15% -10%, #16303a 0%, transparent 60%),
+      radial-gradient(900px 400px at 110% 0%, #1a2430 0%, transparent 55%),
+      var(--bg);
     color: var(--text);
     display: flex;
     flex-direction: column;
@@ -33,42 +39,73 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 0.85rem 1.25rem;
+    padding: 0.9rem 1.4rem;
     border-bottom: 1px solid var(--border);
-    background: #12161c;
+    background: rgba(13, 17, 23, 0.85);
+    backdrop-filter: blur(6px);
+    position: sticky;
+    top: 0;
+    z-index: 5;
   }
-  header .brand { font-weight: 650; letter-spacing: 0.02em; }
-  header .meta { color: var(--muted); font-size: 0.85rem; text-align: right; }
-  header .pair {
+  .brand { display: flex; align-items: center; gap: 0.7rem; }
+  .brand .logo {
+    width: 34px; height: 34px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent-dim), #1c3d4a);
+    border: 1px solid var(--border-hi);
+    display: grid; place-items: center;
+    font-weight: 800; font-size: 0.72rem; letter-spacing: 0.03em;
+    color: #cfe9f2;
+  }
+  .brand .t1 { font-weight: 700; letter-spacing: 0.02em; }
+  .brand .t2 { color: var(--muted); font-size: 0.8rem; margin-top: 0.1rem; }
+  .head-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: 1px solid var(--border-hi);
+    background: var(--card);
+    border-radius: 999px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.84rem;
+    color: var(--muted);
+  }
+  .chip strong { color: var(--accent); letter-spacing: 0.08em; font-size: 0.95rem; }
+  .chip button {
+    all: unset;
+    cursor: pointer;
     color: var(--accent);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    font-size: 1.05rem;
+    font-size: 0.78rem;
+    padding: 0 0.1rem;
   }
+  .chip button:hover { text-decoration: underline; }
+
   .layout {
     flex: 1;
     display: grid;
-    grid-template-columns: minmax(320px, 1.1fr) minmax(320px, 1fr);
+    grid-template-columns: minmax(340px, 1.15fr) minmax(320px, 1fr);
     min-height: 0;
   }
-  @media (max-width: 960px) {
+  @media (max-width: 980px) {
     .layout { grid-template-columns: 1fr; }
+    .col.left { border-right: none; border-bottom: 1px solid var(--border); }
+    .log-panel { min-height: 260px; }
   }
-  .col {
-    min-height: 0;
-    overflow: auto;
-    padding: 1rem 1.1rem 1.25rem;
-  }
+  .col { min-height: 0; overflow: auto; padding: 1.05rem 1.25rem 1.4rem; }
   .col.left { border-right: 1px solid var(--border); }
   h2 {
-    margin: 0 0 0.75rem;
-    font-size: 0.78rem;
+    margin: 0 0 0.7rem;
+    font-size: 0.74rem;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     color: var(--muted);
-    font-weight: 600;
+    font-weight: 700;
   }
-  .status-list { display: flex; flex-direction: column; gap: 0.55rem; }
+  .section { margin-top: 1.2rem; }
+  .section:first-child { margin-top: 0; }
+
+  .status-list { display: flex; flex-direction: column; gap: 0.5rem; }
   .status-row {
     display: flex;
     align-items: center;
@@ -76,243 +113,278 @@
     gap: 0.75rem;
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.75rem 0.9rem;
+    border-radius: var(--radius);
+    padding: 0.72rem 0.95rem;
+    transition: border-color 0.2s;
   }
-  .status-row .label { font-weight: 600; }
-  .status-row .detail { color: var(--muted); font-size: 0.82rem; margin-top: 0.15rem; }
+  .status-row.on { border-color: rgba(51, 194, 116, 0.4); }
+  .status-row .label { font-weight: 600; font-size: 0.95rem; }
+  .status-row .detail { color: var(--muted); font-size: 0.82rem; margin-top: 0.18rem; }
   .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     font-size: 0.72rem;
     font-weight: 700;
-    letter-spacing: 0.04em;
-    padding: 0.28rem 0.55rem;
+    letter-spacing: 0.05em;
+    padding: 0.3rem 0.62rem;
     border-radius: 999px;
     white-space: nowrap;
   }
-  .badge.ok { background: rgba(47,191,113,0.18); color: var(--ok); }
-  .badge.warn { background: rgba(224,160,58,0.18); color: var(--warn); }
-  .badge.off { background: rgba(139,154,171,0.15); color: var(--muted); }
-  .badge.bad { background: rgba(224,90,74,0.18); color: var(--bad); }
+  .badge::before {
+    content: "";
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .badge.ok   { background: rgba(51,194,116,0.16); color: var(--ok); }
+  .badge.warn { background: rgba(230,164,59,0.16); color: var(--warn); }
+  .badge.off  { background: rgba(141,156,174,0.13); color: var(--muted); }
+  .badge.bad  { background: rgba(226,90,74,0.16);  color: var(--bad); }
+
   .metrics {
-    margin-top: 1.1rem;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 0.55rem;
   }
   .metric {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.75rem 0.85rem;
+    border-radius: var(--radius);
+    padding: 0.7rem 0.85rem;
   }
-  .metric .k { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
-  .metric .v { font-size: 1.25rem; font-weight: 650; margin-top: 0.25rem; }
-  .metric .s { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
-  .safety {
-    margin-top: 0.9rem;
-    padding: 0.75rem 0.9rem;
-    border-radius: 10px;
+  .metric .k { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
+  .metric .v { font-size: 1.3rem; font-weight: 700; margin-top: 0.28rem; font-variant-numeric: tabular-nums; }
+  .metric .s { color: var(--muted); font-size: 0.75rem; margin-top: 0.18rem; }
+
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.8rem 0.95rem;
+    border-radius: var(--radius);
     border: 1px solid var(--border);
     background: var(--panel);
+    font-size: 0.92rem;
   }
-  .safety.ok { border-color: rgba(47,191,113,0.35); }
-  .safety.no { border-color: rgba(224,160,58,0.4); }
-  .hints {
-    margin-top: 0.9rem;
+  .banner .icon { font-size: 1.1rem; }
+  .banner.ok   { border-color: rgba(51,194,116,0.45); background: rgba(51,194,116,0.07); }
+  .banner.no   { border-color: rgba(230,164,59,0.5);  background: rgba(230,164,59,0.07); }
+
+  .help {
+    padding: 0.85rem 1rem;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.75rem 0.9rem;
+    border-radius: var(--radius);
+    font-size: 0.88rem;
   }
-  .hints ol { margin: 0.35rem 0 0 1.1rem; color: var(--muted); padding: 0; }
-  .peer-box {
-    margin-top: 0.9rem;
-    padding: 0.75rem 0.9rem;
-    background: #121a1f;
-    border: 1px solid var(--accent-dim);
-    border-radius: 10px;
-    font-size: 0.9rem;
-  }
-  .peer-box .title { color: var(--accent); font-weight: 650; margin-bottom: 0.35rem; }
-  .peer-box .muted { color: var(--muted); margin: 0.25rem 0 0.55rem; }
-  .peer-box code {
-    display: block;
+  .help .title { color: var(--accent); font-weight: 650; margin-bottom: 0.35rem; }
+  .help p { margin: 0.25rem 0 0.4rem; color: var(--muted); line-height: 1.5; }
+  .help code {
     background: #0c1014;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.65rem 0.75rem;
+    border-radius: 6px;
+    padding: 0.08rem 0.4rem;
     font-family: Consolas, "Cascadia Mono", monospace;
-    font-size: 0.78rem;
-    word-break: break-all;
-    white-space: pre-wrap;
+    font-size: 0.8rem;
+    color: var(--text);
   }
-  .peer-box .ips { color: var(--muted); font-size: 0.82rem; margin-top: 0.45rem; }
-  .log-panel {
+  .help ol { margin: 0.35rem 0 0 1.15rem; color: var(--muted); padding: 0; line-height: 1.55; }
+  .ip-row {
     display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 420px;
-  }
-  .log-toolbar {
-    display: flex;
-    gap: 0.5rem;
     align-items: center;
-    margin-bottom: 0.6rem;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    flex-wrap: wrap;
   }
+  .ip-pill {
+    font-family: Consolas, monospace;
+    font-size: 0.85rem;
+    background: #0c1014;
+    border: 1px solid var(--border-hi);
+    border-radius: 8px;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+  button {
+    background: var(--card-hi);
+    color: var(--text);
+    border: 1px solid var(--border-hi);
+    border-radius: 9px;
+    padding: 0.5rem 0.85rem;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: filter 0.15s, transform 0.05s;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--accent-dim); border-color: var(--accent); }
+  button.danger  { background: rgba(226,90,74,0.15); border-color: rgba(226,90,74,0.5); color: #f0a9a0; }
+
+  .log-panel { display: flex; flex-direction: column; height: 100%; min-height: 320px; }
+  .log-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.6rem; }
   .log-toolbar input {
     flex: 1;
     background: var(--card);
     border: 1px solid var(--border);
     color: var(--text);
-    border-radius: 8px;
-    padding: 0.45rem 0.65rem;
-  }
-  .log-box {
-    flex: 1;
-    background: #0c0f13;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.65rem 0.75rem;
-    overflow: auto;
-    font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
-    font-size: 0.8rem;
-    line-height: 1.45;
-  }
-  .log-line { margin: 0 0 0.2rem; white-space: pre-wrap; word-break: break-word; }
-  .log-line .ts { color: #6d7c8d; }
-  .log-line .lvl-info { color: var(--accent); }
-  .log-line .lvl-warn { color: var(--warn); }
-  .log-line .lvl-error { color: var(--bad); }
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-    margin-top: 0.75rem;
-  }
-  button {
-    background: #2a3340;
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.45rem 0.75rem;
-    cursor: pointer;
-    font-weight: 600;
+    border-radius: 9px;
+    padding: 0.5rem 0.7rem;
     font-size: 0.85rem;
   }
-  button.primary { background: var(--accent-dim); border-color: var(--accent); }
-  button:hover { filter: brightness(1.08); }
+  .log-toolbar input:focus { outline: 2px solid var(--accent-dim); }
+  .log-box {
+    flex: 1;
+    background: #0b0e12;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.65rem 0.75rem;
+    overflow: auto;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.8rem;
+    line-height: 1.5;
+  }
+  .log-line { margin: 0 0 0.18rem; white-space: pre-wrap; word-break: break-word; }
+  .log-line .ts { color: #67788c; }
+  .log-line .lvl-info  { color: var(--accent); }
+  .log-line .lvl-warn  { color: var(--warn); }
+  .log-line .lvl-error { color: var(--bad); }
+
   footer {
     border-top: 1px solid var(--border);
-    padding: 0.45rem 1.25rem;
+    padding: 0.5rem 1.4rem;
     color: var(--muted);
     font-size: 0.75rem;
     display: flex;
     justify-content: space-between;
+    gap: 1rem;
   }
 </style>
 </head>
 <body>
   <header>
-    <div>
-      <div class="brand">Remote BMW ENET Gateway</div>
-      <div class="meta" id="subtitle">F-Series remote diagnostics</div>
+    <div class="brand">
+      <div class="logo">EN</div>
+      <div>
+        <div class="t1">BMW ENET Gateway</div>
+        <div class="t2" id="subtitle" aria-live="polite">Starting…</div>
+      </div>
     </div>
-    <div class="meta">
-      <div class="pair" id="pair">Pair code: …</div>
-      <div id="mode">Network mode: …</div>
+    <div class="head-right">
+      <span class="chip">Pair&nbsp;<strong id="pair">—</strong>&nbsp;<button type="button" onclick="copyPair()" title="Copy pair code">copy</button></span>
+      <span class="chip" id="mode">—</span>
     </div>
   </header>
 
   <div class="layout">
     <section class="col left">
-      <h2>System status</h2>
-      <div class="status-list">
-        <div class="status-row">
-          <div>
-            <div class="label">Gateway service</div>
-            <div class="detail" id="gw-detail">—</div>
+      <div class="section">
+        <h2>System status</h2>
+        <div class="status-list">
+          <div class="status-row" id="row-gw">
+            <div>
+              <div class="label">Gateway tunnel</div>
+              <div class="detail" id="gw-detail">—</div>
+            </div>
+            <span class="badge off" id="gw-badge">STOPPED</span>
           </div>
-          <span class="badge off" id="gw-badge">STOPPED</span>
-        </div>
-        <div class="status-row">
-          <div>
-            <div class="label">Laptop connection</div>
-            <div class="detail" id="lap-detail">Waiting for agent…</div>
+          <div class="status-row" id="row-l2">
+            <div>
+              <div class="label">ISTA bridge (L2)</div>
+              <div class="detail" id="l2-detail">Npcap + BMW-ENET adapter</div>
+            </div>
+            <span class="badge off" id="l2-badge">—</span>
           </div>
-          <span class="badge off" id="lap-badge">WAITING</span>
-        </div>
-        <div class="status-row">
-          <div>
-            <div class="label">Vehicle ENET</div>
-            <div class="detail" id="veh-detail">No link yet</div>
+          <div class="status-row" id="row-lap">
+            <div>
+              <div class="label">Laptop connection</div>
+              <div class="detail" id="lap-detail">Waiting for Client…</div>
+            </div>
+            <span class="badge off" id="lap-badge">WAITING</span>
           </div>
-          <span class="badge off" id="veh-badge">DOWN</span>
-        </div>
-        <div class="status-row">
-          <div>
-            <div class="label">Vehicle state</div>
-            <div class="detail" id="awk-detail">Ignition / wake unknown</div>
+          <div class="status-row" id="row-veh">
+            <div>
+              <div class="label">Vehicle ENET</div>
+              <div class="detail" id="veh-detail">No link yet</div>
+            </div>
+            <span class="badge off" id="veh-badge">DOWN</span>
           </div>
-          <span class="badge off" id="awk-badge">SLEEP</span>
+          <div class="status-row" id="row-awk">
+            <div>
+              <div class="label">Vehicle state</div>
+              <div class="detail" id="awk-detail">Ignition / wake unknown</div>
+            </div>
+            <span class="badge off" id="awk-badge">SLEEP</span>
+          </div>
         </div>
       </div>
 
-      <h2 style="margin-top:1.15rem">Performance</h2>
-      <div class="metrics">
-        <div class="metric">
-          <div class="k">Latency</div>
-          <div class="v" id="m-rtt">—</div>
-          <div class="s" id="m-rtt-s">p99 / last</div>
-        </div>
-        <div class="metric">
-          <div class="k">Bandwidth</div>
-          <div class="v" id="m-bw">—</div>
-          <div class="s" id="m-bw-s">RX + TX</div>
-        </div>
-        <div class="metric">
-          <div class="k">CPU</div>
-          <div class="v" id="m-cpu">—</div>
-          <div class="s">host process</div>
-        </div>
-        <div class="metric">
-          <div class="k">Packet rate</div>
-          <div class="v" id="m-pps">—</div>
-          <div class="s" id="m-pps-s">in / out · errors</div>
+      <div class="section">
+        <h2>Performance</h2>
+        <div class="metrics">
+          <div class="metric">
+            <div class="k">Latency</div>
+            <div class="v" id="m-rtt">—</div>
+            <div class="s" id="m-rtt-s">p50 / p99</div>
+          </div>
+          <div class="metric">
+            <div class="k">Throughput</div>
+            <div class="v" id="m-bw">—</div>
+            <div class="s" id="m-bw-s">RX + TX</div>
+          </div>
+          <div class="metric">
+            <div class="k">Packet rate</div>
+            <div class="v" id="m-pps">—</div>
+            <div class="s" id="m-pps-s">in / out · errors</div>
+          </div>
+          <div class="metric">
+            <div class="k">CPU</div>
+            <div class="v" id="m-cpu">—</div>
+            <div class="s">host process</div>
+          </div>
         </div>
       </div>
 
-      <div class="safety no" id="safety">
-        <strong>Flash safety:</strong> <span id="safety-txt">checking…</span>
+      <div class="section">
+        <div class="banner no" id="safety" role="status" aria-live="polite">
+          <span class="icon" id="safety-icon">⏳</span>
+          <span><strong>Flash safety:</strong> <span id="safety-txt">checking…</span></span>
+        </div>
       </div>
 
-      <div class="peer-box" id="ista-box">
-        <div class="title">ISTA / E-Sys setup</div>
-        <p class="muted">
-          Tunnel green ≠ car in ISTA. You need <strong>Npcap on both PCs</strong> and the desktop
-          <strong>BMW-ENET</strong> adapter at <code>169.254.1.1</code>.
-          In ISTA choose interface <strong>BMW-ENET</strong>. Re-run Setup (Host) if that adapter is missing.
+      <div class="section help" id="ista-box">
+        <div class="title">ISTA / E-Sys checklist</div>
+        <ol>
+          <li>Npcap installed on <strong>both</strong> PCs (WinPcap-compatible mode)</li>
+          <li>Adapter <code>BMW-ENET</code> exists here at <code>169.254.1.1</code> — see ISTA bridge above</li>
+          <li>Laptop: ENET cable in car + ignition ON (Vehicle awake turns green)</li>
+          <li>In ISTA select interface <code>BMW-ENET</code></li>
+        </ol>
+      </div>
+
+      <div class="section help" id="peer-box" style="display:none">
+        <div class="title">Laptop not connecting?</div>
+        <p>
+          The Client auto-finds this PC by pair code (DHCP-friendly). If it stays Waiting, open
+          <code>http://127.0.0.1:47903/</code> on the laptop → <strong>Auto-find desktop</strong>,
+          or enter this PC's IP as a hint:
         </p>
+        <div class="ip-row" id="ip-row"></div>
+        <p style="margin-top:0.5rem">Same router required — Guest / AP-isolation Wi‑Fi will not work.</p>
       </div>
 
-      <div class="peer-box" id="peer-box" style="display:none">
-        <div class="title">Laptop on Wi‑Fi, desktop on Ethernet?</div>
-        <p class="muted">Client auto-detects this PC by pair code (works with DHCP / changing IPs). If the laptop stays Waiting, open <code>http://127.0.0.1:47903/</code> → <strong>Auto-find desktop</strong>. Same router required (not Guest Wi‑Fi).</p>
-        <code id="peer-cmd">—</code>
-        <div class="ips" id="peer-ips"></div>
-        <div class="actions" style="margin-top:0.65rem">
-          <button class="primary" onclick="copyPeerCmd()">Copy desktop IP hint</button>
-        </div>
-      </div>
-
-      <div class="hints" id="hints-box">
-        <strong>Get connected</strong>
+      <div class="section help" id="hints-box">
+        <div class="title">Get connected</div>
         <ol id="hints"></ol>
       </div>
 
-      <div class="actions">
-        <button class="primary" onclick="post('/api/complete-setup')">Mark setup complete</button>
-        <button onclick="post('/api/restart')">Restart tunnel</button>
-        <button onclick="exportLogs()">Export logs</button>
+      <div class="section actions">
+        <button class="primary" type="button" onclick="post('/api/restart')">Restart tunnel</button>
+        <button type="button" id="btn-startstop" onclick="toggleTunnel()">Stop tunnel</button>
+        <button type="button" onclick="post('/api/complete-setup')">Mark setup complete</button>
+        <button type="button" onclick="exportLogs()">Export logs</button>
       </div>
     </section>
 
@@ -320,14 +392,10 @@
       <div class="log-panel">
         <h2>Activity log</h2>
         <div class="log-toolbar">
-          <input id="log-filter" placeholder="Filter logs…" oninput="renderLogs()"/>
-          <button onclick="clearLogsView()">Clear view</button>
+          <input id="log-filter" placeholder="Filter logs…" aria-label="Filter activity log" oninput="renderLogs()"/>
+          <button type="button" onclick="clearLogsView()">Clear view</button>
         </div>
-        <div class="log-box" id="log-box"></div>
-        <div class="actions">
-          <button onclick="refreshNow()">Refresh</button>
-          <button onclick="exportLogs()">Export logs</button>
-        </div>
+        <div class="log-box" id="log-box" aria-live="off"></div>
       </div>
     </section>
   </div>
@@ -340,9 +408,12 @@
 <script>
 let logs = [];
 let hideBefore = 0;
+let running = false;
 
-function fmtMbps(bps) {
-  return (bps * 8 / 1e6).toFixed(2) + ' Mbps';
+function fmtRate(bps) {
+  if (bps >= 1e6) return (bps / 1e6).toFixed(2) + ' Mbps';
+  if (bps >= 1e3) return (bps / 1e3).toFixed(1) + ' kbps';
+  return bps.toFixed(0) + ' bps';
 }
 
 function setBadge(el, text, kind) {
@@ -350,24 +421,37 @@ function setBadge(el, text, kind) {
   el.className = 'badge ' + kind;
 }
 
+function setRow(rowId, on) {
+  const row = document.getElementById(rowId);
+  if (row) row.classList.toggle('on', !!on);
+}
+
 async function post(url) {
   try {
     const r = await fetch(url, { method: 'POST' });
     const j = await r.json();
-    pushLocal('info', j.message || j.ok ? ('OK ' + url) : JSON.stringify(j));
-    refreshNow();
+    if (j.ok) {
+      pushLocal('info', j.message || ('OK ' + url));
+    } else {
+      pushLocal('warn', j.message || ('Failed: ' + url));
+    }
+    setTimeout(refreshNow, 600);
   } catch (e) {
     pushLocal('error', String(e));
   }
+}
+
+function toggleTunnel() {
+  post(running ? '/api/stop' : '/api/start');
 }
 
 async function exportLogs() {
   try {
     const r = await fetch('/api/export-logs', { method: 'POST' });
     const j = await r.json();
-    alert(j.path || j.error || 'done');
+    pushLocal('info', 'Logs exported: ' + (j.path || j.error || 'done'));
   } catch (e) {
-    alert(String(e));
+    pushLocal('error', String(e));
   }
 }
 
@@ -384,6 +468,7 @@ function clearLogsView() {
 function renderLogs() {
   const q = (document.getElementById('log-filter').value || '').toLowerCase();
   const box = document.getElementById('log-box');
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
   const lines = logs.filter(l => l.ts >= hideBefore && (!q || (l.message || '').toLowerCase().includes(q) || (l.level || '').includes(q)));
   box.innerHTML = lines.map(l => {
     const d = new Date((l.ts || 0) * 1000);
@@ -391,7 +476,7 @@ function renderLogs() {
     const lvl = (l.level || 'info').toLowerCase();
     return `<div class="log-line"><span class="ts">[${ts}]</span> <span class="lvl-${lvl}">[${lvl.toUpperCase()}]</span> ${escapeHtml(l.message || '')}</div>`;
   }).join('');
-  box.scrollTop = box.scrollHeight;
+  if (stick) box.scrollTop = box.scrollHeight;
 }
 
 function escapeHtml(s) {
@@ -400,32 +485,42 @@ function escapeHtml(s) {
 
 function renderStatus(s) {
   document.getElementById('subtitle').textContent = s.friendly_status || 'F-Series remote diagnostics';
-  document.getElementById('pair').textContent = 'Pair code: ' + (s.pair_code || '—');
+  document.getElementById('pair').textContent = s.pair_code || '—';
   let mode = s.network_mode_label || s.network_mode || '—';
   if (s.relay_url) mode += ' · ' + s.relay_url;
-  document.getElementById('mode').textContent = 'Network mode: ' + mode;
+  document.getElementById('mode').textContent = mode;
 
-  const running = !!(s.state && s.state.gateway_running);
-  setBadge(document.getElementById('gw-badge'), running ? 'RUNNING' : 'STOPPED', running ? 'ok' : 'off');
-  document.getElementById('gw-detail').textContent = running ? ('Listening · v' + ((s.state && s.state.version) || '')) : 'Gateway process not running';
+  running = !!(s.state && s.state.gateway_running);
+  setBadge(document.getElementById('gw-badge'), running ? 'RUNNING' : 'STOPPED', running ? 'ok' : 'bad');
+  setRow('row-gw', running);
+  document.getElementById('gw-detail').textContent = running
+    ? ('UDP :47900 listening · v' + ((s.state && s.state.version) || ''))
+    : 'Tunnel stopped — click Start tunnel';
+  document.getElementById('btn-startstop').textContent = running ? 'Stop tunnel' : 'Start tunnel';
+  document.getElementById('btn-startstop').className = running ? 'danger' : 'primary';
+
+  const l2 = !!s.l2_active;
+  setBadge(document.getElementById('l2-badge'), l2 ? 'READY' : 'INACTIVE', l2 ? 'ok' : 'bad');
+  setRow('row-l2', l2);
+  document.getElementById('l2-detail').textContent = l2
+    ? ('ISTA can use this adapter · ' + (s.l2_adapter || 'BMW-ENET'))
+    : ((s.l2_adapter || 'Npcap / BMW-ENET missing') + ' — re-run Setup (Host), then Restart tunnel');
 
   const lap = !!(s.state && (s.state.laptop_connected || (s.state.connection === 'connected')));
   const peer = (s.state && s.state.peer_endpoint) || '';
   setBadge(document.getElementById('lap-badge'), lap ? 'CONNECTED' : 'WAITING', lap ? 'ok' : 'off');
+  setRow('row-lap', lap);
   const lanIps = s.lan_ips || [];
   document.getElementById('lap-detail').textContent = lap
     ? ((s.network_mode_label || 'LAN') + (peer ? (' · ' + peer) : ''))
-    : (lanIps.length
-      ? ('Waiting · Client auto-finds this PC · hint ' + lanIps[0])
-      : 'Waiting for laptop Client (auto-detect by pair code)');
+    : 'Client auto-finds this PC by pair code';
 
   const peerBox = document.getElementById('peer-box');
-  if (!lap && s.connect_command) {
+  if (!lap && lanIps.length) {
     peerBox.style.display = 'block';
-    document.getElementById('peer-cmd').textContent = s.connect_command;
-    document.getElementById('peer-ips').textContent = lanIps.length
-      ? ('This PC LAN IP(s): ' + lanIps.join(', '))
-      : 'Find this PC IP with ipconfig (Ethernet adapter).';
+    document.getElementById('ip-row').innerHTML = lanIps.map(ip =>
+      `<span class="ip-pill">${escapeHtml(ip)}</span><button type="button" onclick="copyText('${escapeHtml(ip)}')">Copy</button>`
+    ).join(' ');
   } else {
     peerBox.style.display = 'none';
   }
@@ -434,6 +529,7 @@ function renderStatus(s) {
   const vip = (s.state && s.state.vehicle && s.state.vehicle.discovered_ip) || '';
   const vin = (s.state && s.state.vehicle && s.state.vehicle.vin) || '';
   setBadge(document.getElementById('veh-badge'), link ? 'CONNECTED' : 'DOWN', link ? 'ok' : 'off');
+  setRow('row-veh', link);
   document.getElementById('veh-detail').textContent = !lap
     ? 'Waiting for laptop first'
     : (link
@@ -441,36 +537,37 @@ function renderStatus(s) {
       : 'Plug ENET into car + laptop');
 
   const awake = lap && !!(s.state && s.state.vehicle && s.state.vehicle.awake);
-  setBadge(document.getElementById('awk-badge'), awake ? 'AWAKE' : 'SLEEP', awake ? 'warn' : 'off');
+  setBadge(document.getElementById('awk-badge'), awake ? 'AWAKE' : 'SLEEP', awake ? 'ok' : 'off');
+  setRow('row-awk', awake);
   document.getElementById('awk-detail').textContent = awake ? 'Vehicle answering diagnostics' : 'Turn ignition ON / wake the car';
 
   const st = s.stats || {};
-  document.getElementById('m-rtt').textContent = (s.rtt_to_laptop_ms || st.rtt_p50_ms || st.rtt_ms || 0).toFixed(1) + ' ms';
-  const fromLap = s.rtt_from_laptop_ms || 0;
   const toLap = s.rtt_to_laptop_ms || st.rtt_ms || 0;
+  const fromLap = s.rtt_from_laptop_ms || 0;
   const p50 = st.rtt_p50_ms || 0;
   const p99 = st.rtt_p99_ms || 0;
+  document.getElementById('m-rtt').textContent = toLap.toFixed(1) + ' ms';
   document.getElementById('m-rtt-s').textContent = fromLap > 0
-    ? ('to laptop ' + toLap.toFixed(0) + ' · from laptop ' + fromLap.toFixed(0) + ' · p50 ' + p50.toFixed(0) + ' / p99 ' + p99.toFixed(0))
-    : ('p50 ' + p50.toFixed(1) + ' · p99 ' + p99.toFixed(1) + ' · last ' + (st.rtt_ms || 0).toFixed(1) + ' ms');
+    ? ('from laptop ' + fromLap.toFixed(0) + ' ms · p50 ' + p50.toFixed(0) + ' / p99 ' + p99.toFixed(0))
+    : ('p50 ' + p50.toFixed(1) + ' · p99 ' + p99.toFixed(1) + ' ms');
   const bw = (st.rx_bps || 0) + (st.tx_bps || 0);
-  document.getElementById('m-bw').textContent = fmtMbps(bw);
-  document.getElementById('m-bw-s').textContent = 'RX ' + fmtMbps(st.rx_bps || 0) + ' · TX ' + fmtMbps(st.tx_bps || 0);
+  document.getElementById('m-bw').textContent = fmtRate(bw);
+  document.getElementById('m-bw-s').textContent = 'RX ' + fmtRate(st.rx_bps || 0) + ' · TX ' + fmtRate(st.tx_bps || 0);
   document.getElementById('m-cpu').textContent = (s.cpu_pct || 0).toFixed(0) + '%';
   const pps = (st.rx_pps || 0) + (st.tx_pps || 0);
-  document.getElementById('m-pps').textContent = pps.toFixed(0) + ' pkts/s';
+  document.getElementById('m-pps').textContent = pps.toFixed(0) + ' pkt/s';
   document.getElementById('m-pps-s').textContent = 'In ' + (st.rx_pps || 0).toFixed(0) + ' · Out ' + (st.tx_pps || 0).toFixed(0) + ' · Err ' + (st.errors || 0);
 
   const safe = !!(s.flash_safety && s.flash_safety.safe);
   const safety = document.getElementById('safety');
-  safety.className = 'safety ' + (safe ? 'ok' : 'no');
+  safety.className = 'banner ' + (safe ? 'ok' : 'no');
+  document.getElementById('safety-icon').textContent = safe ? '✅' : '⚠️';
   document.getElementById('safety-txt').textContent = safe
     ? ('SAFE' + ((s.flash_safety && s.flash_safety.warning) ? (' — ' + s.flash_safety.warning) : ''))
     : ('Not safe — do not flash yet' + ((s.flash_safety && s.flash_safety.warning) ? (' — ' + s.flash_safety.warning) : ''));
 
   const hints = s.setup_hints || [];
   document.getElementById('hints').innerHTML = hints.map(h => '<li>' + escapeHtml(h) + '</li>').join('');
-  // Keep hints visible while waiting for the laptop (Wi‑Fi↔LAN guidance).
   document.getElementById('hints-box').style.display =
     (hints.length === 0 || (s.setup_complete && lap)) ? 'none' : 'block';
 
@@ -478,14 +575,17 @@ function renderStatus(s) {
   document.getElementById('footer-right').textContent = 'v' + ((s.state && s.state.version) || '?');
 }
 
-async function copyPeerCmd() {
-  const t = document.getElementById('peer-cmd').textContent || '';
+async function copyText(t) {
   try {
     await navigator.clipboard.writeText(t);
-    pushLocal('info', 'Copied laptop connect command');
+    pushLocal('info', 'Copied ' + t);
   } catch (e) {
-    pushLocal('warn', 'Copy failed — select the command manually');
+    pushLocal('warn', 'Copy failed — select it manually');
   }
+}
+
+function copyPair() {
+  copyText(document.getElementById('pair').textContent || '');
 }
 
 async function refreshNow() {
@@ -500,7 +600,7 @@ async function refreshNow() {
       renderLogs();
     }
   } catch (e) {
-    pushLocal('error', 'Dashboard refresh failed: ' + e);
+    document.getElementById('subtitle').textContent = 'Dashboard unreachable — is the Host running?';
   }
 }
 

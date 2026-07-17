@@ -177,7 +177,14 @@ impl RelayTunnelEngine {
                     };
                     match decode_tunnel_frame(&pkt, opts.crypto.as_ref()) {
                         Ok(frame) => {
-                            stats.record_rx(pkt.len(), Some(frame.header.sequence));
+                            // Only Ethernet frames share one sequence space; control
+                            // frames would fake loss gaps.
+                            let seq = if frame.header.frame_type == FrameType::Ethernet {
+                                Some(frame.header.sequence)
+                            } else {
+                                None
+                            };
+                            stats.record_rx(pkt.len(), seq);
                             match frame.header.frame_type {
                                 FrameType::Ethernet => {
                                     if let Err(e) = eth.send(frame.payload).await {

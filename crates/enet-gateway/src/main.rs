@@ -45,25 +45,24 @@ struct Args {
     relay: Option<String>,
 }
 
-fn build_host_ethernet(cfg: &GatewayConfig, simulate: bool) -> anyhow::Result<Arc<dyn EthernetPort>> {
-    if simulate {
+/// Host L2 port + whether ISTA forwarding is actually active + adapter label.
+type HostEthernet = (Arc<dyn EthernetPort>, bool, String);
+
+fn build_host_ethernet(cfg: &GatewayConfig, simulate: bool) -> HostEthernet {
+    let fallback = |label: &str| -> HostEthernet {
         let (tap, _tool_peer) = SimulatedEthernet::pair(&cfg.virtual_interface, "tool-stack");
         tap.set_link(true);
         std::mem::forget(_tool_peer);
+        (tap, false, label.to_string())
+    };
+
+    if simulate {
         warn!("Host running in --simulate mode — ISTA cannot see the car");
-        return Ok(tap);
+        return fallback("simulated (test mode)");
     }
 
     #[cfg(windows)]
     {
-        let fallback = || -> Arc<dyn EthernetPort> {
-            let (tap, _tool_peer) =
-                SimulatedEthernet::pair(&cfg.virtual_interface, "tool-stack");
-            tap.set_link(true);
-            std::mem::forget(_tool_peer);
-            tap
-        };
-
         if !enet_tunnel::PcapEthernet::npcap_available() {
             eprintln!();
             eprintln!("  *** ISTA will NOT see the car yet ***");
@@ -72,7 +71,7 @@ fn build_host_ethernet(cfg: &GatewayConfig, simulate: bool) -> anyhow::Result<Ar
             eprintln!("  Tunnel stays up for connection testing; L2/ISTA path is inactive.");
             eprintln!();
             warn!("Npcap missing — Host L2 disabled");
-            return Ok(fallback());
+            return fallback("Npcap not installed");
         }
         let candidates = [
             cfg.virtual_interface.as_str(),
@@ -87,9 +86,10 @@ fn build_host_ethernet(cfg: &GatewayConfig, simulate: bool) -> anyhow::Result<Ar
             }
             match enet_tunnel::PcapEthernet::open(want) {
                 Ok(port) => {
+                    let label = port.display_name().to_string();
                     info!(
                         adapter = %port.name(),
-                        display = %port.display_name(),
+                        display = %label,
                         tester_ip = %cfg.tester_ip,
                         "Host L2 port ready for ISTA"
                     );
@@ -97,7 +97,7 @@ fn build_host_ethernet(cfg: &GatewayConfig, simulate: bool) -> anyhow::Result<Ar
                     eprintln!("  ISTA / E-Sys: select adapter “{}”", cfg.virtual_interface);
                     eprintln!("  Tester IP on that adapter should be {}", cfg.tester_ip);
                     eprintln!();
-                    return Ok(port);
+                    return (port, true, label);
                 }
                 Err(e) => last_err = Some(e),
             }
@@ -114,17 +114,72 @@ fn build_host_ethernet(cfg: &GatewayConfig, simulate: bool) -> anyhow::Result<Ar
         eprintln!("  Tunnel stays up; fix the adapter then restart Host.");
         eprintln!();
         warn!("BMW-ENET pcap open failed — Host L2 disabled");
-        return Ok(fallback());
+        fallback("BMW-ENET adapter missing")
     }
 
     #[cfg(not(windows))]
     {
-        let (tap, _tool_peer) = SimulatedEthernet::pair(&cfg.virtual_interface, "tool-stack");
-        tap.set_link(true);
-        std::mem::forget(_tool_peer);
         warn!("non-Windows Host uses SimulatedEthernet — ISTA path is Windows-only");
-        Ok(tap)
+        fallback("simulated (non-Windows)")
     }
+}
+
+/// Build the tunnel engine (LAN or relay) from the current config.
+async fn start_tunnel(
+    cfg: &GatewayConfig,
+    pair_code: &str,
+    simulate: bool,
+) -> anyhow::Result<(TunnelHandle, bool, String)> {
+    let (eth, l2_active, l2_label) = build_host_ethernet(cfg, simulate);
+
+    let base_opts = TunnelOptions {
+        bind: SocketAddr::from((
+            cfg.bind_addr.unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
+            cfg.tunnel_port,
+        )),
+        peer: cfg.peer_addr.map(|ip| SocketAddr::new(ip, 0)),
+        allowed_cidrs: cfg.allowed_cidrs.clone(),
+        crypto: None,
+        require_crypto: cfg.require_crypto,
+        keepalive_interval_ms: cfg.keepalive_interval_ms,
+        peer_timeout_ms: cfg.peer_timeout_ms,
+        role: "gateway".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+    }
+    .with_password(&cfg.password, cfg.require_crypto);
+
+    let handle = if cfg.network_mode == NetworkMode::Relay {
+        anyhow::ensure!(
+            !cfg.relay_url.is_empty(),
+            "relay mode needs relay_url (or --relay host:47910)"
+        );
+        let ropts = RelayTunnelOptions {
+            base: base_opts,
+            relay_url: cfg.relay_url.clone(),
+            pair_code: pair_code.to_string(),
+        };
+        RelayTunnelEngine::new(ropts, eth)
+            .run()
+            .await
+            .context("failed to join relay")?
+    } else {
+        let bind = base_opts.bind;
+        let handle = TunnelEngine::new(base_opts, eth)
+            .run()
+            .await
+            .context("failed to bind gateway tunnel")?;
+        info!(%bind, "gateway tunnel listening");
+        handle
+    };
+    Ok((handle, l2_active, l2_label))
+}
+
+/// Dashboard tunnel lifecycle commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TunnelCmd {
+    Start,
+    Stop,
+    Restart,
 }
 
 #[derive(Clone)]
@@ -134,6 +189,9 @@ struct AppState {
     health: Arc<RwLock<HealthMonitor>>,
     config_path: PathBuf,
     activity: Arc<RwLock<ActivityLog>>,
+    /// (ISTA L2 forwarding active, adapter label)
+    l2: Arc<RwLock<(bool, String)>>,
+    tunnel_tx: tokio::sync::mpsc::UnboundedSender<TunnelCmd>,
 }
 
 #[derive(Clone, Serialize)]
@@ -196,6 +254,10 @@ struct StatusResponse {
     rtt_to_laptop_ms: f64,
     /// Laptop-reported RTT (laptop→desktop direction).
     rtt_from_laptop_ms: f64,
+    /// True when real L2 frames can reach ISTA (Npcap + BMW-ENET open).
+    l2_active: bool,
+    /// Adapter label or reason the ISTA bridge is inactive.
+    l2_adapter: String,
 }
 
 #[derive(Deserialize)]
@@ -260,47 +322,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let eth: Arc<dyn EthernetPort> = build_host_ethernet(&cfg, args.simulate)?;
-
-    let base_opts = TunnelOptions {
-        bind: SocketAddr::from((
-            cfg.bind_addr.unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
-            cfg.tunnel_port,
-        )),
-        peer: cfg.peer_addr.map(|ip| SocketAddr::new(ip, 0)),
-        allowed_cidrs: cfg.allowed_cidrs.clone(),
-        crypto: None,
-        require_crypto: cfg.require_crypto,
-        keepalive_interval_ms: cfg.keepalive_interval_ms,
-        peer_timeout_ms: cfg.peer_timeout_ms,
-        role: "gateway".into(),
-        version: env!("CARGO_PKG_VERSION").into(),
-    }
-    .with_password(&cfg.password, cfg.require_crypto);
-
-    let handle = if cfg.network_mode == NetworkMode::Relay {
-        anyhow::ensure!(
-            !cfg.relay_url.is_empty(),
-            "relay mode needs relay_url (or --relay host:47910)"
-        );
-        let ropts = RelayTunnelOptions {
-            base: base_opts,
-            relay_url: cfg.relay_url.clone(),
-            pair_code: pair_code.clone(),
-        };
-        RelayTunnelEngine::new(ropts, eth)
-            .run()
-            .await
-            .context("failed to join relay")?
-    } else {
-        let bind = base_opts.bind;
-        let handle = TunnelEngine::new(base_opts, eth)
-            .run()
-            .await
-            .context("failed to bind gateway tunnel")?;
-        info!(%bind, "gateway tunnel listening");
-        handle
-    };
+    let (handle, l2_active, l2_label) = start_tunnel(&cfg, &pair_code, args.simulate).await?;
 
     // LAN beacon only for same-network mode.
     let beacon = if cfg.network_mode == NetworkMode::Lan {
@@ -327,21 +349,68 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    let (tunnel_tx, mut tunnel_rx) = tokio::sync::mpsc::unbounded_channel::<TunnelCmd>();
     let app_state = AppState {
         cfg: Arc::new(RwLock::new(cfg.clone())),
         handle: Arc::new(RwLock::new(Some(handle.clone()))),
         health: Arc::new(RwLock::new(HealthMonitor::new())),
         config_path: args.config.clone(),
         activity: Arc::new(RwLock::new(ActivityLog::new())),
+        l2: Arc::new(RwLock::new((l2_active, l2_label.clone()))),
+        tunnel_tx,
     };
 
     {
         let mut log = app_state.activity.write();
         log.push("info", format!("Gateway started · pair {}", pair_code));
         log.push("info", format!("Network mode: {}", cfg.network_mode.label()));
+        if l2_active {
+            log.push("info", format!("ISTA bridge ready · {l2_label}"));
+        } else {
+            log.push("warn", format!("ISTA bridge inactive · {l2_label}"));
+        }
         if cfg.network_mode == NetworkMode::Relay {
             log.push("info", format!("Relay: {}", cfg.relay_url));
         }
+    }
+
+    // Tunnel lifecycle supervisor — lets the dashboard Stop / Start / Restart in-process.
+    {
+        let sup = app_state.clone();
+        let sup_pair = pair_code.clone();
+        let simulate = args.simulate;
+        tokio::spawn(async move {
+            while let Some(cmd) = tunnel_rx.recv().await {
+                if let Some(h) = sup.handle.write().take() {
+                    h.stop();
+                    sup.activity.write().push("info", "Tunnel stopped");
+                }
+                if cmd == TunnelCmd::Stop {
+                    continue;
+                }
+                // Give the old socket a moment to release the port.
+                tokio::time::sleep(Duration::from_millis(400)).await;
+                let cfg_now = sup.cfg.read().clone();
+                match start_tunnel(&cfg_now, &sup_pair, simulate).await {
+                    Ok((h, l2a, l2l)) => {
+                        *sup.handle.write() = Some(h);
+                        *sup.l2.write() = (l2a, l2l.clone());
+                        let mut log = sup.activity.write();
+                        log.push("info", "Tunnel restarted");
+                        if l2a {
+                            log.push("info", format!("ISTA bridge ready · {l2l}"));
+                        } else {
+                            log.push("warn", format!("ISTA bridge inactive · {l2l}"));
+                        }
+                    }
+                    Err(e) => {
+                        sup.activity
+                            .write()
+                            .push("error", format!("Tunnel start failed: {e:#}"));
+                    }
+                }
+            }
+        });
     }
 
     // Derive activity-log lines from status transitions.
@@ -554,10 +623,7 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
         .first()
         .cloned()
         .unwrap_or_else(|| "DESKTOP_IP".into());
-    let connect_command = format!(
-        "Laptop auto-finds this PC (pair {}). Status: http://127.0.0.1:47903/ → Auto-find. Hint IP: {}",
-        cfg.pair_code, primary_ip
-    );
+    let connect_command = primary_ip.clone();
     let mut setup_hints = cfg.setup_hints();
     if !cfg.network_mode.is_remote()
         && !gateway_state.laptop_connected
@@ -590,6 +656,7 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
     }
     let rtt_to_laptop = gateway_state.rtt_local_ms.max(stats.rtt_ms);
     let rtt_from_laptop = gateway_state.rtt_peer_ms;
+    let (l2_active, l2_adapter) = state.l2.read().clone();
     Json(StatusResponse {
         state: gateway_state,
         stats,
@@ -609,6 +676,8 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
         connect_command,
         rtt_to_laptop_ms: rtt_to_laptop,
         rtt_from_laptop_ms: rtt_from_laptop,
+        l2_active,
+        l2_adapter,
     })
 }
 
@@ -622,31 +691,23 @@ fn local_lan_ipv4s() -> Vec<String> {
 
 async fn api_start(State(state): State<AppState>) -> Json<serde_json::Value> {
     if state.handle.read().is_some() {
-        return Json(serde_json::json!({"ok": true, "message": "already running"}));
+        return Json(serde_json::json!({"ok": true, "message": "Tunnel already running"}));
     }
-    Json(serde_json::json!({
-        "ok": false,
-        "message": "Restart the BMW ENET Gateway app/service to start again"
-    }))
+    let _ = state.tunnel_tx.send(TunnelCmd::Start);
+    Json(serde_json::json!({"ok": true, "message": "Starting tunnel…"}))
 }
 
 async fn api_stop(State(state): State<AppState>) -> Json<serde_json::Value> {
-    if let Some(h) = state.handle.write().take() {
-        h.stop();
-        Json(serde_json::json!({"ok": true}))
-    } else {
-        Json(serde_json::json!({"ok": true, "message": "already stopped"}))
+    if state.handle.read().is_none() {
+        return Json(serde_json::json!({"ok": true, "message": "Tunnel already stopped"}));
     }
+    let _ = state.tunnel_tx.send(TunnelCmd::Stop);
+    Json(serde_json::json!({"ok": true, "message": "Stopping tunnel…"}))
 }
 
 async fn api_restart(State(state): State<AppState>) -> Json<serde_json::Value> {
-    if let Some(h) = state.handle.read().as_ref() {
-        h.stop();
-    }
-    Json(serde_json::json!({
-        "ok": true,
-        "message": "Stop signaled — if installed as a service, Windows will restart it"
-    }))
+    let _ = state.tunnel_tx.send(TunnelCmd::Restart);
+    Json(serde_json::json!({"ok": true, "message": "Restarting tunnel…"}))
 }
 
 async fn api_get_settings(State(state): State<AppState>) -> Json<GatewayConfig> {
@@ -695,7 +756,12 @@ async fn api_set_settings(
         };
     }
     let _ = cfg.save(&state.config_path);
-    Json(serde_json::json!({"ok": true}))
+    drop(cfg);
+    state
+        .activity
+        .write()
+        .push("info", "Settings saved — Restart tunnel to apply");
+    Json(serde_json::json!({"ok": true, "message": "Saved — click Restart tunnel to apply"}))
 }
 
 async fn api_complete_setup(State(state): State<AppState>) -> Json<serde_json::Value> {

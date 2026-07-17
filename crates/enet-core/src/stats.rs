@@ -35,6 +35,8 @@ struct StatsInner {
     window_start: Instant,
     window_tx: u64,
     window_rx: u64,
+    window_tx_bytes: u64,
+    window_rx_bytes: u64,
     /// Gaps observed inside the current rate window (for flash-safety loss %).
     window_loss: u64,
     last_rx_seq: Option<u64>,
@@ -50,6 +52,8 @@ impl Default for StatsInner {
             window_start: Instant::now(),
             window_tx: 0,
             window_rx: 0,
+            window_tx_bytes: 0,
+            window_rx_bytes: 0,
             window_loss: 0,
             last_rx_seq: None,
             expected_loss: 0,
@@ -106,6 +110,7 @@ impl PacketStats {
         self.tx_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
         let mut inner = self.inner.lock();
         inner.window_tx = inner.window_tx.saturating_add(1);
+        inner.window_tx_bytes = inner.window_tx_bytes.saturating_add(bytes as u64);
     }
 
     /// Record an incoming packet and optional sequence for loss detection.
@@ -114,6 +119,7 @@ impl PacketStats {
         self.rx_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
         let mut inner = self.inner.lock();
         inner.window_rx = inner.window_rx.saturating_add(1);
+        inner.window_rx_bytes = inner.window_rx_bytes.saturating_add(bytes as u64);
         if let Some(seq) = sequence {
             if let Some(prev) = inner.last_rx_seq {
                 if seq <= prev {
@@ -203,9 +209,9 @@ impl PacketStats {
         let rx_pps = inner.window_rx as f64 / elapsed;
         let tx_bytes = self.tx_bytes.load(Ordering::Relaxed);
         let rx_bytes = self.rx_bytes.load(Ordering::Relaxed);
-        // Approximate bps from lifetime / uptime of window is coarse; good enough for UI.
-        let tx_bps = (inner.window_tx as f64 * 800.0) / elapsed; // assume ~100B avg if unknown
-        let rx_bps = (inner.window_rx as f64 * 800.0) / elapsed;
+        // Real bits/sec from bytes moved during this window.
+        let tx_bps = (inner.window_tx_bytes as f64 * 8.0) / elapsed;
+        let rx_bps = (inner.window_rx_bytes as f64 * 8.0) / elapsed;
 
         let mut samples: Vec<f64> = inner.rtt_samples_ms.iter().copied().collect();
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -219,6 +225,8 @@ impl PacketStats {
         inner.window_start = Instant::now();
         inner.window_tx = 0;
         inner.window_rx = 0;
+        inner.window_tx_bytes = 0;
+        inner.window_rx_bytes = 0;
         inner.window_loss = 0;
 
         StatsSnapshot {

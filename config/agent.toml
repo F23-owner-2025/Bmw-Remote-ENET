@@ -5,7 +5,8 @@
 role = "agent"
 network_mode = "lan"
 tunnel_port = 47900
-api_port = 47901
+# Client status page port (Host dashboard is 47901).
+api_port = 47903
 discovery_port = 47902
 auto_discover = true
 pair_code = ""

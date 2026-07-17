@@ -124,6 +124,10 @@ struct LiveStatus {
     force_discover: AtomicBool,
     enet_name: Arc<RwLock<String>>,
     enet_link: Arc<AtomicBool>,
+    /// True when Npcap capture/inject is live on the ENET adapter.
+    l2_active: Arc<AtomicBool>,
+    /// Human adapter label or reason L2 is inactive.
+    l2_label: Arc<RwLock<String>>,
     force_reconnect: AtomicBool,
     config_path: PathBuf,
     tunnel_port: u16,
@@ -138,6 +142,8 @@ struct StatusJson {
     configured_peer: Option<String>,
     enet_interface: String,
     enet_link: bool,
+    l2_active: bool,
+    l2_label: String,
     vehicle_awake: bool,
     vehicle_link: bool,
     rtt_ms: f64,
@@ -156,6 +162,30 @@ struct ConnectResponse {
     ok: bool,
     message: String,
     peer: Option<String>,
+}
+
+/// Npcap port that reports OS carrier (shared refresher) instead of a sticky flag.
+#[cfg(windows)]
+struct LinkedPcap {
+    inner: Arc<enet_tunnel::PcapEthernet>,
+    link: Arc<AtomicBool>,
+}
+
+#[cfg(windows)]
+#[async_trait]
+impl EthernetPort for LinkedPcap {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+    async fn link_up(&self) -> bool {
+        self.link.load(Ordering::Relaxed)
+    }
+    async fn recv(&self) -> anyhow::Result<Bytes> {
+        self.inner.recv().await
+    }
+    async fn send(&self, frame: Bytes) -> anyhow::Result<()> {
+        self.inner.send(frame).await
+    }
 }
 
 /// Placeholder NIC that still reports real OS link/carrier for the ENET adapter.
@@ -199,11 +229,15 @@ async fn build_ethernet_port(
     simulate: bool,
     enet_name: Arc<RwLock<String>>,
     enet_link: Arc<AtomicBool>,
+    l2_active: Arc<AtomicBool>,
+    l2_label: Arc<RwLock<String>>,
 ) -> anyhow::Result<Arc<dyn EthernetPort>> {
+    l2_active.store(false, Ordering::Relaxed);
     if simulate {
         let (port, _peer) = SimulatedEthernet::pair("sim-enet", "sim-car");
         info!("using simulated ENET interface");
         *enet_name.write() = "sim-enet".into();
+        *l2_label.write() = "simulated (test mode)".into();
         enet_link.store(true, Ordering::Relaxed);
         std::mem::forget(_peer);
         return Ok(port);
@@ -212,6 +246,7 @@ async fn build_ethernet_port(
     #[cfg(windows)]
     {
         if !enet_tunnel::PcapEthernet::npcap_available() {
+            *l2_label.write() = "Npcap not installed".into();
             eprintln!();
             eprintln!("  *** Npcap required for ISTA ***");
             eprintln!("  Install from https://npcap.com (enable WinPcap API compatibility),");
@@ -220,48 +255,49 @@ async fn build_ethernet_port(
             eprintln!();
         } else if let Some(iface) = pick_enet_interface(cfg.enet_interface.as_str()) {
             // Only open the scored ENET candidate — never the Wi‑Fi / LAN tunnel NIC.
-            match enet_tunnel::PcapEthernet::open(&iface.name) {
-                Ok(port) => {
-                    let shown = port.display_name().to_string();
-                    info!(adapter = %port.name(), %shown, "Client L2 ENET capture ready");
-                    *enet_name.write() = shown.clone();
-                    enet_link.store(true, Ordering::Relaxed);
-                    eprintln!("  ENET capture: {shown}");
-                    return Ok(port);
-                }
-                Err(e) => {
-                    // Fall back: match Npcap description against the OS adapter name.
-                    warn!(error = %e, name = %iface.name, "direct pcap open failed; trying description match");
-                    if let Ok(list) = enet_tunnel::PcapEthernet::list_devices() {
-                        let want = iface.name.to_lowercase();
-                        for line in list {
-                            let lower = line.to_lowercase();
-                            if lower.contains(&want)
-                                || (want.len() >= 4 && lower.contains(want.trim()))
-                            {
-                                let npf = line.split('|').next().unwrap_or(&line);
-                                if let Ok(port) = enet_tunnel::PcapEthernet::open(npf) {
-                                    let shown = port.display_name().to_string();
-                                    *enet_name.write() = shown.clone();
-                                    enet_link.store(true, Ordering::Relaxed);
-                                    eprintln!("  ENET capture: {shown}");
-                                    return Ok(port);
-                                }
-                            }
-                        }
-                    }
-                    eprintln!();
-                    eprintln!("  Could not open Npcap on ENET adapter '{}'.", iface.name);
-                    eprintln!("  Run Client as Administrator / SYSTEM and confirm Npcap is installed.");
-                    eprintln!();
-                }
+            let try_open = |target: &str| enet_tunnel::PcapEthernet::open(target).ok();
+            let opened = try_open(&iface.name).or_else(|| {
+                // Fall back: match Npcap description against the OS adapter name.
+                let want = iface.name.to_lowercase();
+                enet_tunnel::PcapEthernet::list_devices()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|line| line.to_lowercase().contains(&want))
+                    .and_then(|line| {
+                        let npf = line.split('|').next().unwrap_or(&line).to_string();
+                        try_open(&npf)
+                    })
+            });
+            if let Some(port) = opened {
+                let shown = port.display_name().to_string();
+                info!(adapter = %port.name(), %shown, "Client L2 ENET capture ready");
+                // Keep the OS adapter name so the carrier refresher can poll it.
+                *enet_name.write() = iface.name.clone();
+                *l2_label.write() = shown.clone();
+                l2_active.store(true, Ordering::Relaxed);
+                enet_link.store(adapter_link_up(&iface.name), Ordering::Relaxed);
+                eprintln!("  ENET capture: {shown}");
+                return Ok(Arc::new(LinkedPcap {
+                    inner: port,
+                    link: enet_link.clone(),
+                }));
             }
+            *l2_label.write() = format!("Npcap could not open {}", iface.name);
+            eprintln!();
+            eprintln!("  Could not open Npcap on ENET adapter '{}'.", iface.name);
+            eprintln!("  Run Client as Administrator / SYSTEM and confirm Npcap is installed.");
+            eprintln!();
         } else {
+            *l2_label.write() = "waiting for ENET adapter".into();
             eprintln!();
             eprintln!("  Npcap is installed but no ENET adapter was detected yet.");
             eprintln!("  Plug the ENET cable into the car + laptop, then restart Client.");
             eprintln!();
         }
+    }
+    #[cfg(not(windows))]
+    {
+        *l2_label.write() = "L2 capture is Windows-only".into();
     }
 
     let preferred = cfg.enet_interface.clone();
@@ -500,11 +536,9 @@ async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
         if let Some(h) = guard.as_ref() {
             let st = h.snapshot_state();
             let (last, _p99, loss) = h.stats.peek_quality();
-            let desk = matches!(
-                st.connection,
-                ConnectionState::Connected | ConnectionState::Reconnecting
-            ) || st.laptop_connected
-                || last > 0.0;
+            // Honest state only — a stale RTT sample is not a connection.
+            let desk = matches!(st.connection, ConnectionState::Connected)
+                || st.laptop_connected;
             let label = match st.connection {
                 ConnectionState::Connected => "connected",
                 ConnectionState::Reconnecting => "reconnecting",
@@ -524,7 +558,7 @@ async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
             (false, false, false, 0.0, 0.0, "searching")
         }
     };
-    // Prefer OS carrier for cable indicator; fall back to tunnel vehicle_link.
+    // OS carrier drives the cable indicator; tunnel link is a secondary hint.
     let enet = live.enet_link.load(Ordering::Relaxed) || vehicle_link;
     let desktop_connected = desktop;
     let friendly = match conn_label {
@@ -547,8 +581,10 @@ async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
         configured_peer: (*live.configured_peer.read()).map(|ip| ip.to_string()),
         enet_interface: live.enet_name.read().clone(),
         enet_link: enet,
+        l2_active: live.l2_active.load(Ordering::Relaxed),
+        l2_label: live.l2_label.read().clone(),
         vehicle_awake: awake,
-        vehicle_link: enet,
+        vehicle_link,
         rtt_ms,
         loss_rate,
         friendly,
@@ -811,6 +847,8 @@ async fn main() -> anyhow::Result<()> {
 
     let enet_name = Arc::new(RwLock::new(String::new()));
     let enet_link = Arc::new(AtomicBool::new(false));
+    let l2_active = Arc::new(AtomicBool::new(false));
+    let l2_label = Arc::new(RwLock::new(String::from("starting…")));
     let live = Arc::new(LiveStatus {
         handle: RwLock::new(None),
         pair_code: RwLock::new(cfg.pair_code.clone()),
@@ -823,6 +861,8 @@ async fn main() -> anyhow::Result<()> {
         force_discover: AtomicBool::new(false),
         enet_name: enet_name.clone(),
         enet_link: enet_link.clone(),
+        l2_active: l2_active.clone(),
+        l2_label: l2_label.clone(),
         force_reconnect: AtomicBool::new(false),
         config_path: args.config.clone(),
         tunnel_port: cfg.tunnel_port,
@@ -869,8 +909,15 @@ async fn main() -> anyhow::Result<()> {
         let force_discover = live.force_discover.swap(false, Ordering::SeqCst);
         live.force_reconnect.store(false, Ordering::SeqCst);
         *live.pair_code.write() = cfg.pair_code.clone();
-        let eth = match build_ethernet_port(&cfg, args.simulate, enet_name.clone(), enet_link.clone())
-            .await
+        let eth = match build_ethernet_port(
+            &cfg,
+            args.simulate,
+            enet_name.clone(),
+            enet_link.clone(),
+            l2_active.clone(),
+            l2_label.clone(),
+        )
+        .await
         {
             Ok(e) => e,
             Err(e) => {

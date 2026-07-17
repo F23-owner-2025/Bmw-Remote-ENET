@@ -166,7 +166,7 @@ not a replacement for L2 ENET forwarding.
 ┌─────────────┐   ENET cable    ┌──────────────────┐   LAN UDP:47900   ┌─────────────────────┐
 │ BMW F23     │◄───────────────►│ Laptop Agent     │◄─────────────────►│ Desktop Gateway     │
 │ ZGW/BDC     │  169.254.x.x    │ (Npcap/raw)     │  encrypted frames │ (Windows Service)   │
-└─────────────┘                 │ Captures/injects │                   │ Wintun/TAP vNIC     │
+└─────────────┘                 │ Captures/injects │                   │ BMW-ENET + Npcap    │
                                 └──────────────────┘                   │ ISTA / E-Sys / etc. │
                                                                        └─────────────────────┘
 ```
@@ -179,7 +179,7 @@ not a replacement for L2 ENET forwarding.
 4. **Flashing** — Ordered delivery is provided by the inner TCP of HSFZ/DoIP; the tunnel
    only needs extremely low loss. We add sequence numbers, loss detection, and optional
    selective retransmission for control frames.
-5. **Desktop illusion** — Wintun/TAP presents a NIC that tools treat as a local ENET adapter
+5. **Desktop illusion** — a Microsoft Loopback adapter named BMW-ENET (bridged via Npcap) is a NIC that tools treat as a local ENET adapter
    with `169.254.1.1/16`.
 
 ### Security Model
@@ -195,7 +195,7 @@ not a replacement for L2 ENET forwarding.
 | Component | Runs On | Role |
 |-----------|---------|------|
 | `enet-agent` | Laptop | Detect ENET NIC, capture/inject frames, tunnel client |
-| `enet-gateway` | Desktop | Windows service, tunnel server, TAP/Wintun, health checks |
+| `enet-gateway` | Desktop | Windows service, tunnel server, BMW-ENET Npcap bridge, health checks |
 | `enet-gui` | Desktop (and optionally laptop) | Status, settings, flash-safety gate, logs |
 | `enet-sim` | Dev/CI | Simulated BMW ENET traffic for tests |
 

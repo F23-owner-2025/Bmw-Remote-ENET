@@ -94,9 +94,7 @@ pub struct GatewayConfig {
     pub allowed_cidrs: Vec<String>,
     /// Preferred ENET / LAN interface name (empty = auto).
     pub enet_interface: String,
-    /// Preferred LAN interface for tunnel (empty = auto).
-    pub lan_interface: String,
-    /// Virtual TAP/Wintun interface name on gateway.
+    /// Virtual loopback interface name on gateway (ISTA selects this).
     pub virtual_interface: String,
     /// Tester IP to assign on gateway virtual NIC.
     pub tester_ip: String,
@@ -106,8 +104,6 @@ pub struct GatewayConfig {
     pub password: String,
     /// Require encryption.
     pub require_crypto: bool,
-    /// Enable TLS for control API (future).
-    pub tls_enabled: bool,
     /// Auto-start gateway/agent on boot.
     pub auto_start: bool,
     /// Reconnect delay milliseconds (base).
@@ -165,13 +161,11 @@ impl Default for GatewayConfig {
                 "169.254.0.0/16".into(),
             ],
             enet_interface: String::new(),
-            lan_interface: String::new(),
             virtual_interface: "BMW-ENET".into(),
             tester_ip: "169.254.1.1".into(),
             tester_mask: "255.255.0.0".into(),
             password: String::new(),
             require_crypto: false,
-            tls_enabled: false,
             auto_start: true,
             reconnect_delay_ms: 500,
             reconnect_delay_max_ms: 10_000,
