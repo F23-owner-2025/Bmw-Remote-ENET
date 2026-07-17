@@ -131,6 +131,11 @@ struct LiveStatus {
     force_reconnect: AtomicBool,
     config_path: PathBuf,
     tunnel_port: u16,
+    /// Newer release found by the periodic check.
+    update_available: RwLock<Option<enet_core::updater::UpdateInfo>>,
+    /// Update settings snapshot (repo, token, auto).
+    update_repo: String,
+    update_token: String,
 }
 
 #[derive(Serialize)]
@@ -149,6 +154,7 @@ struct StatusJson {
     rtt_ms: f64,
     loss_rate: f64,
     friendly: String,
+    update_available: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -588,7 +594,78 @@ async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
         rtt_ms,
         loss_rate,
         friendly,
+        update_available: live
+            .update_available
+            .read()
+            .as_ref()
+            .map(|u| u.version.clone()),
     })
+}
+
+/// Release asset carrying the laptop Client package.
+const UPDATE_ASSET: &str = "BMW-ENET-Client-windows-x64.zip";
+
+fn check_update_blocking(
+    repo: &str,
+    token: &str,
+) -> Option<enet_core::updater::UpdateInfo> {
+    if !cfg!(windows) || repo.is_empty() {
+        return None;
+    }
+    match enet_core::updater::check_latest(repo, env!("CARGO_PKG_VERSION"), UPDATE_ASSET, token) {
+        Ok(u) => u,
+        Err(e) => {
+            info!(error = %e, "update check skipped");
+            None
+        }
+    }
+}
+
+/// Download, swap binaries, restart. Only returns on failure.
+fn apply_update_blocking(
+    info: &enet_core::updater::UpdateInfo,
+    token: &str,
+) -> anyhow::Result<()> {
+    let dir = enet_core::updater::install_dir()?;
+    enet_core::updater::download_and_stage(info, &dir, token)?;
+    enet_core::updater::restart_self()
+}
+
+async fn api_update(State(live): State<Arc<LiveStatus>>) -> Json<ConnectResponse> {
+    let cached = live.update_available.read().clone();
+    let update = match cached {
+        Some(u) => Some(u),
+        None => {
+            let repo = live.update_repo.clone();
+            let token = live.update_token.clone();
+            tokio::task::spawn_blocking(move || check_update_blocking(&repo, &token))
+                .await
+                .unwrap_or(None)
+        }
+    };
+    match update {
+        Some(u) => {
+            let version = u.version.clone();
+            let token = live.update_token.clone();
+            if let Some(h) = live.handle.write().take() {
+                h.stop();
+            }
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&u, &token)).await;
+            });
+            Json(ConnectResponse {
+                ok: true,
+                message: format!("Updating to v{version} — this page will reconnect shortly"),
+                peer: None,
+            })
+        }
+        None => Json(ConnectResponse {
+            ok: true,
+            message: format!("Already up to date (v{})", env!("CARGO_PKG_VERSION")),
+            peer: None,
+        }),
+    }
 }
 
 async fn api_connect(
@@ -710,6 +787,7 @@ fn spawn_status_server(live: Arc<LiveStatus>, port: u16) {
             .route("/api/status", get(api_status))
             .route("/api/connect", post(api_connect))
             .route("/api/discover", post(api_discover))
+            .route("/api/update", post(api_update))
             .with_state(live);
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         match tokio::net::TcpListener::bind(addr).await {
@@ -866,11 +944,73 @@ async fn main() -> anyhow::Result<()> {
         force_reconnect: AtomicBool::new(false),
         config_path: args.config.clone(),
         tunnel_port: cfg.tunnel_port,
+        update_available: RwLock::new(None),
+        update_repo: cfg.update_repo.clone(),
+        update_token: cfg.update_token.clone(),
     });
     spawn_status_server(live.clone(), status_port);
     spawn_enet_link_refresher(enet_name.clone(), enet_link.clone());
 
     let _guard = init_logging(cfg.log_level, &cfg.log_dir)?;
+
+    // Self-update: clean leftovers, then install any newer release before we
+    // dial the desktop (nothing is connected yet, so restarting is safe).
+    if let Ok(dir) = enet_core::updater::install_dir() {
+        enet_core::updater::cleanup_stale(&dir);
+    }
+    if cfg.auto_update {
+        let repo = cfg.update_repo.clone();
+        let token = cfg.update_token.clone();
+        let found = tokio::task::spawn_blocking(move || check_update_blocking(&repo, &token))
+            .await
+            .unwrap_or(None);
+        if let Some(update) = found {
+            eprintln!("  Update found: v{} — installing…", update.version);
+            let token = cfg.update_token.clone();
+            let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token)).await;
+            eprintln!("  Update failed — continuing with v{}.", env!("CARGO_PKG_VERSION"));
+        }
+    }
+
+    // Periodic update check (every 6 h); auto-install only while the desktop
+    // is not connected so a session is never interrupted.
+    {
+        let live_upd = live.clone();
+        let auto = cfg.auto_update;
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+                let repo = live_upd.update_repo.clone();
+                let token = live_upd.update_token.clone();
+                let found = tokio::task::spawn_blocking(move || check_update_blocking(&repo, &token))
+                    .await
+                    .unwrap_or(None);
+                let Some(update) = found else { continue };
+                info!(version = %update.version, "update available");
+                *live_upd.update_available.write() = Some(update.clone());
+                let connected = live_upd
+                    .handle
+                    .read()
+                    .as_ref()
+                    .map(|h| {
+                        matches!(
+                            h.snapshot_state().connection,
+                            ConnectionState::Connected
+                        )
+                    })
+                    .unwrap_or(false);
+                if auto && !connected {
+                    eprintln!("  Auto-installing v{} — restarting…", update.version);
+                    if let Some(h) = live_upd.handle.write().take() {
+                        h.stop();
+                    }
+                    let token = live_upd.update_token.clone();
+                    let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token)).await;
+                    eprintln!("  Update install failed");
+                }
+            }
+        });
+    }
     info!(
         version = env!("CARGO_PKG_VERSION"),
         mode = ?cfg.network_mode,

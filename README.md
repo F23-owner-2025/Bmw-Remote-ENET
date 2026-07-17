@@ -14,7 +14,7 @@ You need **one file**. No Rust. No `.bat` scripts.
 
 1. Log into GitHub → open **[Releases](https://github.com/Ryan-duntley19/Bmw-Remote-ENET/releases)**  
    *(while private: you must be signed in; when public: anyone can download)*
-2. Download **`BMW-ENET-Setup.exe`** (use **v0.1.18 or newer**)
+2. Download **`BMW-ENET-Setup.exe`** (use **v0.1.20 or newer**)
 3. Double-click it → allow Administrator
 4. Choose a role and click **Install**:
 
@@ -40,6 +40,19 @@ https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 Then run `BMW-ENET-Setup.exe` again.  
 (Newer releases from **v0.1.5+** bundle this runtime and should not need the redistributable.)
+
+### Auto-update
+
+From **v0.1.20**, Host and Client **update themselves** from GitHub Releases:
+
+- On every start they check for a newer release and install it before connecting.
+- While running they check every 6 hours and install when nothing is connected
+  (an update never interrupts a diagnostics/flash session).
+- Both dashboards show an **Update now** button when a new version is waiting.
+
+You only need `BMW-ENET-Setup.exe` once per PC. Note: automatic checks need the
+GitHub repo to be **public** (or set `update_token` in the config file while private).
+Set `auto_update = false` in `config/*.toml` to opt out.
 
 ### Uninstall
 

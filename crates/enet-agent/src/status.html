@@ -299,6 +299,14 @@
     <div class="msg" id="connect-msg" aria-live="polite"></div>
   </div>
 
+  <div class="panel" id="update-box" style="display:none">
+    <h2>Update available</h2>
+    <p id="update-txt">A newer version is ready. It installs automatically when idle, or update now.</p>
+    <div class="actions">
+      <button id="btn-update" class="primary" type="button">Update now</button>
+    </div>
+  </div>
+
   <div class="checklist">
     <div class="title">ISTA on the desktop — checklist</div>
     <ol>
@@ -381,6 +389,13 @@ async function refresh() {
     document.getElementById('saved-peer').textContent = s.configured_peer
       ? ('Saved hint: ' + s.configured_peer)
       : '';
+
+    const upd = s.update_available;
+    document.getElementById('update-box').style.display = upd ? 'block' : 'none';
+    if (upd) {
+      document.getElementById('update-txt').textContent =
+        'v' + upd + ' is ready — installs automatically when idle, or update now.';
+    }
   } catch (e) {
     document.getElementById('sub').textContent = 'Status unavailable — is enet-agent running?';
   }
@@ -444,8 +459,24 @@ async function autoFind() {
   }
 }
 
+async function updateNow() {
+  const btn = document.getElementById('btn-update');
+  btn.disabled = true;
+  showMsg('Updating…');
+  try {
+    const r = await fetch('/api/update', { method: 'POST' });
+    const j = await r.json();
+    showMsg(j.message || 'Updating…', j.ok ? 'ok' : 'err');
+  } catch (e) {
+    showMsg('Update failed: ' + e, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 document.getElementById('btn-connect').addEventListener('click', connect);
 document.getElementById('btn-discover').addEventListener('click', autoFind);
+document.getElementById('btn-update').addEventListener('click', updateNow);
 document.getElementById('peer').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') connect();
 });

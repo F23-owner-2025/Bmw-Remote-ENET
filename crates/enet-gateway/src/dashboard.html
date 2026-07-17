@@ -354,6 +354,14 @@
         </div>
       </div>
 
+      <div class="section" id="update-box" style="display:none">
+        <div class="banner ok" role="status">
+          <span class="icon">⬆️</span>
+          <span><strong>Update available:</strong> <span id="update-txt">v?</span></span>
+          <button class="primary" type="button" style="margin-left:auto" onclick="post('/api/update')">Update now</button>
+        </div>
+      </div>
+
       <div class="section help" id="ista-box">
         <div class="title">ISTA / E-Sys checklist</div>
         <ol>
@@ -565,6 +573,10 @@ function renderStatus(s) {
   document.getElementById('safety-txt').textContent = safe
     ? ('SAFE' + ((s.flash_safety && s.flash_safety.warning) ? (' — ' + s.flash_safety.warning) : ''))
     : ('Not safe — do not flash yet' + ((s.flash_safety && s.flash_safety.warning) ? (' — ' + s.flash_safety.warning) : ''));
+
+  const upd = s.update_available;
+  document.getElementById('update-box').style.display = upd ? 'block' : 'none';
+  if (upd) document.getElementById('update-txt').textContent = 'v' + upd + ' — installs when idle, or click Update now';
 
   const hints = s.setup_hints || [];
   document.getElementById('hints').innerHTML = hints.map(h => '<li>' + escapeHtml(h) + '</li>').join('');

@@ -10,6 +10,7 @@ pub mod logging;
 pub mod safety;
 pub mod stats;
 pub mod state;
+pub mod updater;
 
 pub use config::{GatewayConfig, LogLevel, NetworkMode, Role};
 pub use discovery::{

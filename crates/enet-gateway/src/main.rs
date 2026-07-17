@@ -182,6 +182,37 @@ enum TunnelCmd {
     Restart,
 }
 
+/// Release asset carrying the desktop Host package.
+const UPDATE_ASSET: &str = "BMW-ENET-Host-windows-x64.zip";
+
+fn check_update_blocking(cfg: &GatewayConfig) -> Option<enet_core::updater::UpdateInfo> {
+    if !cfg!(windows) || cfg.update_repo.is_empty() {
+        return None;
+    }
+    match enet_core::updater::check_latest(
+        &cfg.update_repo,
+        env!("CARGO_PKG_VERSION"),
+        UPDATE_ASSET,
+        &cfg.update_token,
+    ) {
+        Ok(u) => u,
+        Err(e) => {
+            info!(error = %e, "update check skipped");
+            None
+        }
+    }
+}
+
+/// Download, swap binaries, restart. Only returns on failure.
+fn apply_update_blocking(
+    info: &enet_core::updater::UpdateInfo,
+    token: &str,
+) -> anyhow::Result<()> {
+    let dir = enet_core::updater::install_dir()?;
+    enet_core::updater::download_and_stage(info, &dir, token)?;
+    enet_core::updater::restart_self()
+}
+
 #[derive(Clone)]
 struct AppState {
     cfg: Arc<RwLock<GatewayConfig>>,
@@ -192,6 +223,8 @@ struct AppState {
     /// (ISTA L2 forwarding active, adapter label)
     l2: Arc<RwLock<(bool, String)>>,
     tunnel_tx: tokio::sync::mpsc::UnboundedSender<TunnelCmd>,
+    /// Newer release found by the periodic check.
+    update_available: Arc<RwLock<Option<enet_core::updater::UpdateInfo>>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -258,6 +291,8 @@ struct StatusResponse {
     l2_active: bool,
     /// Adapter label or reason the ISTA bridge is inactive.
     l2_adapter: String,
+    /// Newer release version available for install (e.g. "0.1.20").
+    update_available: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -322,6 +357,25 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Self-update: clean leftovers, then install any newer release before we
+    // bind sockets (nothing is connected yet, so restarting is safe).
+    if let Ok(dir) = enet_core::updater::install_dir() {
+        enet_core::updater::cleanup_stale(&dir);
+    }
+    if cfg.auto_update {
+        let cfg_upd = cfg.clone();
+        let found = tokio::task::spawn_blocking(move || check_update_blocking(&cfg_upd))
+            .await
+            .unwrap_or(None);
+        if let Some(update) = found {
+            eprintln!("  Update found: v{} — installing…", update.version);
+            let token = cfg.update_token.clone();
+            let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token)).await;
+            // apply_update restarts the process on success; getting here means it failed.
+            eprintln!("  Update failed — continuing with v{}.", env!("CARGO_PKG_VERSION"));
+        }
+    }
+
     let (handle, l2_active, l2_label) = start_tunnel(&cfg, &pair_code, args.simulate).await?;
 
     // LAN beacon only for same-network mode.
@@ -358,6 +412,7 @@ async fn main() -> anyhow::Result<()> {
         activity: Arc::new(RwLock::new(ActivityLog::new())),
         l2: Arc::new(RwLock::new((l2_active, l2_label.clone()))),
         tunnel_tx,
+        update_available: Arc::new(RwLock::new(None)),
     };
 
     {
@@ -372,6 +427,44 @@ async fn main() -> anyhow::Result<()> {
         if cfg.network_mode == NetworkMode::Relay {
             log.push("info", format!("Relay: {}", cfg.relay_url));
         }
+    }
+
+    // Periodic update check (every 6 h). Auto-installs only while no laptop
+    // session is active so an update can never interrupt diagnostics/flashing.
+    {
+        let st = app_state.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+                let cfg_now = st.cfg.read().clone();
+                if !cfg_now.auto_update && st.update_available.read().is_some() {
+                    continue;
+                }
+                let cfg_chk = cfg_now.clone();
+                let found = tokio::task::spawn_blocking(move || check_update_blocking(&cfg_chk))
+                    .await
+                    .unwrap_or(None);
+                let Some(update) = found else { continue };
+                st.activity
+                    .write()
+                    .push("info", format!("Update available: v{}", update.version));
+                *st.update_available.write() = Some(update.clone());
+                let connected = st
+                    .handle
+                    .read()
+                    .as_ref()
+                    .map(|h| h.snapshot_state().laptop_connected)
+                    .unwrap_or(false);
+                if cfg_now.auto_update && !connected {
+                    st.activity
+                        .write()
+                        .push("info", format!("Auto-installing v{} — restarting…", update.version));
+                    let token = cfg_now.update_token.clone();
+                    let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token)).await;
+                    st.activity.write().push("error", "Update install failed");
+                }
+            }
+        });
     }
 
     // Tunnel lifecycle supervisor — lets the dashboard Stop / Start / Restart in-process.
@@ -487,6 +580,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/safety", get(api_safety))
         .route("/api/export-logs", post(api_export_logs))
         .route("/api/complete-setup", post(api_complete_setup))
+        .route("/api/update", post(api_update))
         .layer(CorsLayer::permissive())
         .with_state(app_state.clone());
 
@@ -678,7 +772,49 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
         rtt_from_laptop_ms: rtt_from_laptop,
         l2_active,
         l2_adapter,
+        update_available: state
+            .update_available
+            .read()
+            .as_ref()
+            .map(|u| u.version.clone()),
     })
+}
+
+async fn api_update(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let cfg_now = state.cfg.read().clone();
+    let cached = state.update_available.read().clone();
+    let update = match cached {
+        Some(u) => Some(u),
+        None => {
+            let cfg_chk = cfg_now.clone();
+            tokio::task::spawn_blocking(move || check_update_blocking(&cfg_chk))
+                .await
+                .unwrap_or(None)
+        }
+    };
+    match update {
+        Some(u) => {
+            let version = u.version.clone();
+            state
+                .activity
+                .write()
+                .push("info", format!("Installing v{version} — restarting…"));
+            let token = cfg_now.update_token.clone();
+            tokio::spawn(async move {
+                // Let the HTTP response flush before the process restarts.
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&u, &token)).await;
+            });
+            Json(serde_json::json!({
+                "ok": true,
+                "message": format!("Updating to v{version} — this page will reconnect shortly")
+            }))
+        }
+        None => Json(serde_json::json!({
+            "ok": true,
+            "message": format!("Already up to date (v{})", env!("CARGO_PKG_VERSION"))
+        })),
+    }
 }
 
 /// Best-effort local IPv4 list for dashboard hints (all LAN NICs).
