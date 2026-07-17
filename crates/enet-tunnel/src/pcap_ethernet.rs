@@ -41,6 +41,12 @@ impl PcapEthernet {
     ///
     /// `want` examples: `"Ethernet 2"`, `"BMW-ENET"`, `"Realtek"`.
     pub fn open(want: &str) -> anyhow::Result<Arc<Self>> {
+        if !wpcap_dll_loadable() {
+            anyhow::bail!(
+                "Npcap/WinPcap not available (wpcap.dll missing). Install Npcap from \
+                 https://npcap.com (check “WinPcap API compatibility”)."
+            );
+        }
         let devices = pcap::Device::list().map_err(|e| {
             anyhow::anyhow!(
                 "Npcap/WinPcap not available ({e}). Install Npcap from https://npcap.com \
@@ -180,6 +186,9 @@ impl PcapEthernet {
 
     /// List Npcap devices as `"name|description"` lines (for diagnostics).
     pub fn list_devices() -> anyhow::Result<Vec<String>> {
+        if !wpcap_dll_loadable() {
+            anyhow::bail!("wpcap.dll missing (install Npcap)");
+        }
         let devices = pcap::Device::list().map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(devices
             .into_iter()
@@ -195,7 +204,30 @@ impl PcapEthernet {
 
     /// True if Npcap/WinPcap appears loadable.
     pub fn npcap_available() -> bool {
+        // Probe the DLL first. With /DELAYLOAD, calling into pcap while the DLL
+        // is missing raises a Windows delay-load fault instead of a clean Err.
+        if !wpcap_dll_loadable() {
+            return false;
+        }
         pcap::Device::list().is_ok()
+    }
+}
+
+/// Soft-check that `wpcap.dll` can be loaded (Npcap / WinPcap runtime present).
+fn wpcap_dll_loadable() -> bool {
+    type Hmodule = *mut core::ffi::c_void;
+    extern "system" {
+        fn LoadLibraryW(name: *const u16) -> Hmodule;
+        fn FreeLibrary(module: Hmodule) -> i32;
+    }
+    let wide: Vec<u16> = "wpcap.dll\0".encode_utf16().collect();
+    unsafe {
+        let handle = LoadLibraryW(wide.as_ptr());
+        if handle.is_null() {
+            return false;
+        }
+        FreeLibrary(handle);
+        true
     }
 }
 

@@ -80,29 +80,74 @@ jobs:
       - name: Integration smoke test (Host + Client, simulate mode)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path smoke/host/config, smoke/client/config | Out-Null
+          # Absolute exe paths: Start-Process resolves relative FilePath against WorkingDirectory.
+          $root = (Resolve-Path .).Path
+          $gwExe = Join-Path $root "target\release\enet-gateway.exe"
+          $agExe = Join-Path $root "target\release\enet-agent.exe"
+          if (-not (Test-Path $gwExe)) { throw "missing $gwExe" }
+          if (-not (Test-Path $agExe)) { throw "missing $agExe" }
+
+          New-Item -ItemType Directory -Force -Path smoke/host/config, smoke/client/config, smoke/host/logs, smoke/client/logs | Out-Null
           # No GitHub dependency inside CI: disable the self-updater.
-          "role = `"gateway`"`nauto_update = false" | Set-Content smoke/host/config/gateway.toml
-          "role = `"agent`"`nauto_update = false" | Set-Content smoke/client/config/agent.toml
-          $gw = Start-Process -FilePath target/release/enet-gateway.exe -ArgumentList "--config","config/gateway.toml","--simulate","--quiet" -WorkingDirectory smoke/host -PassThru
-          # Poll until the Host API is up (cold runner startup can be slow).
+          # Npcap is not installed on runners; --simulate must work without wpcap.dll.
+          @"
+          role = "gateway"
+          auto_update = false
+          "@ | Set-Content smoke/host/config/gateway.toml
+          @"
+          role = "agent"
+          auto_update = false
+          "@ | Set-Content smoke/client/config/agent.toml
+
+          $gwOut = Join-Path $root "smoke\host\stdout.txt"
+          $gwErr = Join-Path $root "smoke\host\stderr.txt"
+          $agOut = Join-Path $root "smoke\client\stdout.txt"
+          $agErr = Join-Path $root "smoke\client\stderr.txt"
+
+          $gw = Start-Process -FilePath $gwExe `
+            -ArgumentList @("--config","config/gateway.toml","--simulate","--quiet") `
+            -WorkingDirectory (Join-Path $root "smoke\host") `
+            -RedirectStandardOutput $gwOut -RedirectStandardError $gwErr `
+            -PassThru
+          Write-Host "Host PID $($gw.Id)"
+
           $pair = $null
           foreach ($i in 1..30) {
             Start-Sleep -Seconds 1
+            if ($gw.HasExited) {
+              Write-Host "=== Host stdout ==="; Get-Content $gwOut -ErrorAction SilentlyContinue
+              Write-Host "=== Host stderr ==="; Get-Content $gwErr -ErrorAction SilentlyContinue
+              throw "Host exited early with code $($gw.ExitCode)"
+            }
             try {
               $st = Invoke-RestMethod http://127.0.0.1:47901/api/status -TimeoutSec 2
               if ($st.pair_code) { $pair = $st.pair_code; break }
             } catch {}
           }
           if (-not $pair) {
+            Write-Host "=== Host stdout ==="; Get-Content $gwOut -ErrorAction SilentlyContinue
+            Write-Host "=== Host stderr ==="; Get-Content $gwErr -ErrorAction SilentlyContinue
+            if (Test-Path smoke/host/logs) { Get-ChildItem smoke/host/logs -Recurse | ForEach-Object { Write-Host $_.FullName; Get-Content $_.FullName -Tail 80 } }
             Stop-Process -Id $gw.Id -Force -ErrorAction SilentlyContinue
-            throw "Host API never came up / no pair code"
+            throw "Host API never came up / no pair code (HasExited=$($gw.HasExited))"
           }
           Write-Host "Host up, pair $pair"
-          $ag = Start-Process -FilePath target/release/enet-agent.exe -ArgumentList "--config","config/agent.toml","--simulate","--peer","127.0.0.1","--pair-code",$pair -WorkingDirectory smoke/client -PassThru
+
+          $ag = Start-Process -FilePath $agExe `
+            -ArgumentList @("--config","config/agent.toml","--simulate","--peer","127.0.0.1","--pair-code",$pair) `
+            -WorkingDirectory (Join-Path $root "smoke\client") `
+            -RedirectStandardOutput $agOut -RedirectStandardError $agErr `
+            -PassThru
+          Write-Host "Client PID $($ag.Id)"
+
           $connected = $false
           foreach ($i in 1..30) {
             Start-Sleep -Seconds 1
+            if ($ag.HasExited) {
+              Write-Host "=== Client stdout ==="; Get-Content $agOut -ErrorAction SilentlyContinue
+              Write-Host "=== Client stderr ==="; Get-Content $agErr -ErrorAction SilentlyContinue
+              throw "Client exited early with code $($ag.ExitCode)"
+            }
             try {
               $s = Invoke-RestMethod http://127.0.0.1:47901/api/status -TimeoutSec 2
               if ($s.state.laptop_connected) { $connected = $true; break }
@@ -110,7 +155,11 @@ jobs:
           }
           Stop-Process -Id $ag.Id -Force -ErrorAction SilentlyContinue
           Stop-Process -Id $gw.Id -Force -ErrorAction SilentlyContinue
-          if (-not $connected) { throw "Smoke test failed: Client never connected to Host" }
+          if (-not $connected) {
+            Write-Host "=== Client stdout ==="; Get-Content $agOut -ErrorAction SilentlyContinue
+            Write-Host "=== Client stderr ==="; Get-Content $agErr -ErrorAction SilentlyContinue
+            throw "Smoke test failed: Client never connected to Host"
+          }
           Write-Host "Smoke test OK: tunnel connected"
 
       - name: Stage release files

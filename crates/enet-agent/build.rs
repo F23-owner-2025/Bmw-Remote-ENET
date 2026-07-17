@@ -10,4 +10,11 @@ fn main() {
             println!("cargo:warning=winres failed: {e}");
         }
     }
+
+    // Allow the Client to start without Npcap installed (CI smoke / --simulate).
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if target.contains("windows") && target.contains("msvc") {
+        println!("cargo:rustc-link-arg=/DELAYLOAD:wpcap.dll");
+        println!("cargo:rustc-link-arg=delayimp.lib");
+    }
 }
