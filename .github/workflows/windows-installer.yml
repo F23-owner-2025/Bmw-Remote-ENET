@@ -81,17 +81,30 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path smoke/host/config, smoke/client/config | Out-Null
+          # No GitHub dependency inside CI: disable the self-updater.
+          "role = `"gateway`"`nauto_update = false" | Set-Content smoke/host/config/gateway.toml
+          "role = `"agent`"`nauto_update = false" | Set-Content smoke/client/config/agent.toml
           $gw = Start-Process -FilePath target/release/enet-gateway.exe -ArgumentList "--config","config/gateway.toml","--simulate","--quiet" -WorkingDirectory smoke/host -PassThru
-          Start-Sleep -Seconds 4
-          $st = Invoke-RestMethod http://127.0.0.1:47901/api/status
-          $pair = $st.pair_code
-          if (-not $pair) { throw "Host did not report a pair code" }
-          $ag = Start-Process -FilePath target/release/enet-agent.exe -ArgumentList "--config","config/agent.toml","--simulate","--peer","127.0.0.1","--pair-code",$pair -WorkingDirectory smoke/client -PassThru
-          $connected = $false
-          foreach ($i in 1..20) {
+          # Poll until the Host API is up (cold runner startup can be slow).
+          $pair = $null
+          foreach ($i in 1..30) {
             Start-Sleep -Seconds 1
             try {
-              $s = Invoke-RestMethod http://127.0.0.1:47901/api/status
+              $st = Invoke-RestMethod http://127.0.0.1:47901/api/status -TimeoutSec 2
+              if ($st.pair_code) { $pair = $st.pair_code; break }
+            } catch {}
+          }
+          if (-not $pair) {
+            Stop-Process -Id $gw.Id -Force -ErrorAction SilentlyContinue
+            throw "Host API never came up / no pair code"
+          }
+          Write-Host "Host up, pair $pair"
+          $ag = Start-Process -FilePath target/release/enet-agent.exe -ArgumentList "--config","config/agent.toml","--simulate","--peer","127.0.0.1","--pair-code",$pair -WorkingDirectory smoke/client -PassThru
+          $connected = $false
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 1
+            try {
+              $s = Invoke-RestMethod http://127.0.0.1:47901/api/status -TimeoutSec 2
               if ($s.state.laptop_connected) { $connected = $true; break }
             } catch {}
           }
