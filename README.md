@@ -9,7 +9,6 @@ Car ──ENET──► Laptop (Client) ══ Wi‑Fi / VPN ══► Desktop (
 ```
 
 ---
-buymeacoffee.com/Ryan_Duntley
 ## Install (Windows)
 
 You need **one file**. No Rust. No `.bat` scripts.
