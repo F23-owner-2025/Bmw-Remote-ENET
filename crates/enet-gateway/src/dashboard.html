@@ -3,32 +3,37 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>BMW ENET Gateway — Host</title>
+<title>BMW ENET — Host</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --panel: #151b23;
-    --card: #1a222c;
-    --card-hi: #202a36;
-    --border: #2a3441;
-    --border-hi: #3a4757;
-    --text: #e9eef5;
-    --muted: #8d9cae;
-    --ok: #33c274;
-    --warn: #e6a43b;
-    --bad: #e25a4a;
-    --accent: #4aa8c7;
-    --accent-dim: #2a6f84;
-    --radius: 12px;
+    --bg: #0b0f14;
+    --bg-elev: #10161d;
+    --panel: #141b23;
+    --card: #181f28;
+    --card-hi: #1e2732;
+    --border: #26303b;
+    --border-hi: #354354;
+    --text: #eef3f8;
+    --muted: #8b9aab;
+    --faint: #6b7a8c;
+    --ok: #3dcc86;
+    --warn: #e0b14a;
+    --bad: #e05d52;
+    --accent: #4db3d4;
+    --accent-2: #2b7d99;
+    --radius: 10px;
+    --shadow: 0 10px 30px rgba(0,0,0,.28);
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
     margin: 0;
-    font-family: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
+    font-family: var(--sans);
     background:
-      radial-gradient(1100px 500px at 15% -10%, #16303a 0%, transparent 60%),
-      radial-gradient(900px 400px at 110% 0%, #1a2430 0%, transparent 55%),
+      radial-gradient(900px 420px at 8% -8%, rgba(43,125,153,.22), transparent 55%),
+      radial-gradient(700px 360px at 100% 0%, rgba(20,40,58,.45), transparent 50%),
       var(--bg);
     color: var(--text);
     display: flex;
@@ -37,229 +42,213 @@
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.9rem 1.4rem;
+    gap: 1.1rem;
+    padding: 0.75rem 1.25rem;
     border-bottom: 1px solid var(--border);
-    background: rgba(13, 17, 23, 0.85);
-    backdrop-filter: blur(6px);
+    background: rgba(11, 15, 20, 0.92);
+    backdrop-filter: blur(10px);
     position: sticky;
     top: 0;
-    z-index: 5;
+    z-index: 8;
   }
-  .brand { display: flex; align-items: center; gap: 0.7rem; }
-  .brand .logo {
-    width: 34px; height: 34px;
+  .brand { display: flex; align-items: center; gap: 0.7rem; min-width: 220px; }
+  .logo {
+    width: 36px; height: 36px;
     border-radius: 9px;
-    background: linear-gradient(135deg, var(--accent-dim), #1c3d4a);
-    border: 1px solid var(--border-hi);
+    background: linear-gradient(160deg, #2f8aa8, #163845);
+    border: 1px solid rgba(77,179,212,.35);
     display: grid; place-items: center;
-    font-weight: 800; font-size: 0.72rem; letter-spacing: 0.03em;
-    color: #cfe9f2;
+    font-weight: 800; font-size: 0.68rem; letter-spacing: 0.04em;
+    color: #d7f1f8;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
   }
-  .brand .t1 { font-weight: 700; letter-spacing: 0.02em; }
-  .brand .t2 { color: var(--muted); font-size: 0.8rem; margin-top: 0.1rem; }
-  .head-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end; }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    border: 1px solid var(--border-hi);
-    background: var(--card);
+  .brand .t1 { font-weight: 650; letter-spacing: 0.01em; font-size: 0.95rem; }
+  .brand .t2 { color: var(--muted); font-size: 0.75rem; margin-top: 0.08rem; }
+  .role {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    border: 1px solid rgba(77,179,212,.35);
+    background: rgba(77,179,212,.08);
     border-radius: 999px;
-    padding: 0.35rem 0.8rem;
-    font-size: 0.84rem;
-    color: var(--muted);
+    padding: 0.12rem 0.45rem;
+    margin-left: 0.35rem;
+    vertical-align: 1px;
   }
-  .chip strong { color: var(--accent); letter-spacing: 0.08em; font-size: 0.95rem; }
-  .chip button {
+  nav.tabs { display: flex; gap: 0.2rem; background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 0.18rem; }
+  nav.tabs button {
     all: unset;
     cursor: pointer;
-    color: var(--accent);
-    font-size: 0.78rem;
-    padding: 0 0.1rem;
+    padding: 0.42rem 0.9rem;
+    border-radius: 7px;
+    font-size: 0.82rem;
+    font-weight: 650;
+    color: var(--muted);
   }
+  nav.tabs button:hover { color: var(--text); }
+  nav.tabs button.active { background: var(--card-hi); color: var(--text); box-shadow: var(--shadow); }
+  .head-right { margin-left: auto; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; justify-content: flex-end; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    border: 1px solid var(--border-hi); background: var(--card);
+    border-radius: 999px; padding: 0.32rem 0.75rem;
+    font-size: 0.78rem; color: var(--muted);
+  }
+  .chip strong { color: var(--accent); letter-spacing: 0.1em; font-family: var(--mono); font-size: 0.86rem; }
+  .chip button { all: unset; cursor: pointer; color: var(--accent); font-size: 0.74rem; }
   .chip button:hover { text-decoration: underline; }
 
   .layout {
-    flex: 1;
+    flex: 1; min-height: 0;
     display: grid;
-    grid-template-columns: minmax(340px, 1.15fr) minmax(320px, 1fr);
-    min-height: 0;
+    grid-template-columns: minmax(360px, 1.12fr) minmax(300px, 1fr);
   }
   @media (max-width: 980px) {
     .layout { grid-template-columns: 1fr; }
     .col.left { border-right: none; border-bottom: 1px solid var(--border); }
-    .log-panel { min-height: 260px; }
+    header { flex-wrap: wrap; }
+    .brand { min-width: 0; }
   }
-  .col { min-height: 0; overflow: auto; padding: 1.05rem 1.25rem 1.4rem; }
+  .col { min-height: 0; overflow: auto; padding: 1.15rem 1.3rem 1.5rem; }
   .col.left { border-right: 1px solid var(--border); }
+  .view { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  .view.active { display: flex; }
+  .settings-wrap { overflow: auto; padding: 1.15rem 1.3rem 1.8rem; max-width: 860px; }
+
   h2 {
-    margin: 0 0 0.7rem;
-    font-size: 0.74rem;
+    margin: 0 0 0.65rem;
+    font-size: 0.7rem;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--muted);
+    letter-spacing: 0.12em;
+    color: var(--faint);
     font-weight: 700;
   }
-  .section { margin-top: 1.2rem; }
+  .section { margin-top: 1.15rem; }
   .section:first-child { margin-top: 0; }
 
-  .status-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .status-list { display: flex; flex-direction: column; gap: 0.45rem; }
   .status-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.72rem 0.95rem;
-    transition: border-color 0.2s;
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.7rem 0.9rem; transition: border-color .2s, background .2s;
   }
-  .status-row.on { border-color: rgba(51, 194, 116, 0.4); }
-  .status-row .label { font-weight: 600; font-size: 0.95rem; }
-  .status-row .detail { color: var(--muted); font-size: 0.82rem; margin-top: 0.18rem; }
+  .status-row.on { border-color: rgba(61,204,134,.38); background: rgba(61,204,134,.05); }
+  .status-row .label { font-weight: 650; font-size: 0.92rem; }
+  .status-row .detail { color: var(--muted); font-size: 0.8rem; margin-top: 0.16rem; }
   .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    padding: 0.3rem 0.62rem;
-    border-radius: 999px;
-    white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 0.38rem;
+    font-size: 0.68rem; font-weight: 750; letter-spacing: 0.06em;
+    padding: 0.28rem 0.58rem; border-radius: 999px; white-space: nowrap;
   }
-  .badge::before {
-    content: "";
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-  .badge.ok   { background: rgba(51,194,116,0.16); color: var(--ok); }
-  .badge.warn { background: rgba(230,164,59,0.16); color: var(--warn); }
-  .badge.off  { background: rgba(141,156,174,0.13); color: var(--muted); }
-  .badge.bad  { background: rgba(226,90,74,0.16);  color: var(--bad); }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .badge.ok   { background: rgba(61,204,134,.14); color: var(--ok); }
+  .badge.warn { background: rgba(224,177,74,.14); color: var(--warn); }
+  .badge.off  { background: rgba(139,154,171,.12); color: var(--muted); }
+  .badge.bad  { background: rgba(224,93,82,.14); color: var(--bad); }
 
-  .metrics {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 0.55rem;
-  }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.5rem; }
   .metric {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.7rem 0.85rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.7rem 0.8rem;
   }
-  .metric .k { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
-  .metric .v { font-size: 1.3rem; font-weight: 700; margin-top: 0.28rem; font-variant-numeric: tabular-nums; }
-  .metric .s { color: var(--muted); font-size: 0.75rem; margin-top: 0.18rem; }
+  .metric .k { color: var(--faint); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.1em; }
+  .metric .v { font-size: 1.28rem; font-weight: 700; margin-top: 0.25rem; font-variant-numeric: tabular-nums; }
+  .metric .s { color: var(--muted); font-size: 0.72rem; margin-top: 0.16rem; }
 
   .banner {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-    padding: 0.8rem 0.95rem;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--panel);
-    font-size: 0.92rem;
+    display: flex; align-items: center; gap: 0.7rem;
+    padding: 0.8rem 0.95rem; border-radius: var(--radius);
+    border: 1px solid var(--border); background: var(--panel); font-size: 0.9rem;
   }
-  .banner .icon { font-size: 1.1rem; }
-  .banner.ok   { border-color: rgba(51,194,116,0.45); background: rgba(51,194,116,0.07); }
-  .banner.no   { border-color: rgba(230,164,59,0.5);  background: rgba(230,164,59,0.07); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .banner.ok { border-color: rgba(61,204,134,.4); background: rgba(61,204,134,.07); }
+  .banner.ok .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .banner.no { border-color: rgba(224,177,74,.45); background: rgba(224,177,74,.07); }
+  .banner.no .dot { background: var(--warn); }
 
-  .help {
-    padding: 0.85rem 1rem;
+  .help, .card {
+    padding: 1rem 1.05rem;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    font-size: 0.88rem;
   }
-  .help .title { color: var(--accent); font-weight: 650; margin-bottom: 0.35rem; }
-  .help p { margin: 0.25rem 0 0.4rem; color: var(--muted); line-height: 1.5; }
-  .help code {
-    background: #0c1014;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.08rem 0.4rem;
-    font-family: Consolas, "Cascadia Mono", monospace;
-    font-size: 0.8rem;
-    color: var(--text);
+  .help .title, .card .title { color: var(--text); font-weight: 650; margin-bottom: 0.28rem; font-size: 0.95rem; }
+  .help p, .card p { margin: 0.22rem 0 0.4rem; color: var(--muted); line-height: 1.5; font-size: 0.86rem; }
+  .help code, .card code, code {
+    background: #0c1014; border: 1px solid var(--border); border-radius: 5px;
+    padding: 0.06rem 0.38rem; font-family: var(--mono); font-size: 0.78rem; color: var(--text);
   }
-  .help ol { margin: 0.35rem 0 0 1.15rem; color: var(--muted); padding: 0; line-height: 1.55; }
-  .ip-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-    flex-wrap: wrap;
-  }
+  .help ol { margin: 0.35rem 0 0 1.15rem; color: var(--muted); padding: 0; line-height: 1.55; font-size: 0.86rem; }
+  .ip-row { display: flex; align-items: center; gap: 0.45rem; margin-top: 0.5rem; flex-wrap: wrap; }
   .ip-pill {
-    font-family: Consolas, monospace;
-    font-size: 0.85rem;
-    background: #0c1014;
-    border: 1px solid var(--border-hi);
-    border-radius: 8px;
-    padding: 0.35rem 0.65rem;
+    font-family: var(--mono); font-size: 0.82rem; background: #0c1014;
+    border: 1px solid var(--border-hi); border-radius: 7px; padding: 0.32rem 0.6rem;
   }
 
   .actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
   button {
-    background: var(--card-hi);
-    color: var(--text);
-    border: 1px solid var(--border-hi);
-    border-radius: 9px;
-    padding: 0.5rem 0.85rem;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 0.85rem;
-    transition: filter 0.15s, transform 0.05s;
+    background: var(--card-hi); color: var(--text);
+    border: 1px solid var(--border-hi); border-radius: 8px;
+    padding: 0.48rem 0.85rem; cursor: pointer;
+    font-weight: 650; font-size: 0.82rem;
+    transition: filter .15s, transform .05s, background .15s;
   }
-  button:hover { filter: brightness(1.12); }
+  button:hover { filter: brightness(1.1); }
   button:active { transform: translateY(1px); }
-  button.primary { background: var(--accent-dim); border-color: var(--accent); }
-  button.danger  { background: rgba(226,90,74,0.15); border-color: rgba(226,90,74,0.5); color: #f0a9a0; }
+  button:disabled { opacity: .5; cursor: default; transform: none; }
+  button.primary { background: var(--accent-2); border-color: var(--accent); }
+  button.danger { background: rgba(224,93,82,.14); border-color: rgba(224,93,82,.45); color: #f0b2ac; }
+  button.ghost { background: transparent; }
+
+  .field { margin-bottom: 0.9rem; }
+  .field label {
+    display: block; font-size: 0.74rem; font-weight: 650; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: 0.32rem;
+  }
+  .field .hint { color: var(--muted); font-size: 0.78rem; margin-top: 0.32rem; line-height: 1.45; }
+  .field input[type="text"], .field input[type="password"] {
+    width: 100%; padding: 0.58rem 0.72rem;
+    border-radius: 8px; border: 1px solid var(--border);
+    background: #0c1014; color: var(--text); font-size: 0.95rem; font-family: var(--mono);
+  }
+  .field input:focus { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+  .inline-fields { display: flex; gap: 0.45rem; align-items: center; }
+  .inline-fields input { flex: 1; }
+  .switch {
+    display: flex; align-items: center; gap: 0.65rem; font-size: 0.9rem; cursor: pointer; user-select: none;
+  }
+  .switch input { width: 16px; height: 16px; accent-color: var(--accent-2); }
+  .pair-display {
+    font-family: var(--mono); font-size: 1.35rem; font-weight: 700; letter-spacing: 0.14em;
+    background: #0c1014; border: 1px solid var(--border-hi); border-radius: 8px;
+    padding: 0.7rem 0.85rem; color: var(--accent);
+  }
+  .msg { min-height: 1.2em; font-size: 0.84rem; color: var(--muted); margin-top: 0.55rem; }
+  .msg.ok { color: var(--ok); }
+  .msg.err { color: var(--bad); }
 
   .log-panel { display: flex; flex-direction: column; height: 100%; min-height: 320px; }
-  .log-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.6rem; }
+  .log-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.55rem; }
   .log-toolbar input {
-    flex: 1;
-    background: var(--card);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 9px;
-    padding: 0.5rem 0.7rem;
-    font-size: 0.85rem;
+    flex: 1; background: var(--card); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 0.48rem 0.7rem; font-size: 0.84rem;
   }
-  .log-toolbar input:focus { outline: 2px solid var(--accent-dim); }
+  .log-toolbar input:focus { outline: 2px solid var(--accent-2); }
   .log-box {
-    flex: 1;
-    background: #0b0e12;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.65rem 0.75rem;
-    overflow: auto;
-    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-    font-size: 0.8rem;
-    line-height: 1.5;
+    flex: 1; background: #090c10; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.65rem 0.75rem; overflow: auto; font-family: var(--mono); font-size: 0.78rem; line-height: 1.5;
   }
-  .log-line { margin: 0 0 0.18rem; white-space: pre-wrap; word-break: break-word; }
-  .log-line .ts { color: #67788c; }
+  .log-line { margin: 0 0 0.16rem; white-space: pre-wrap; word-break: break-word; }
+  .log-line .ts { color: #5d6e80; }
   .log-line .lvl-info  { color: var(--accent); }
   .log-line .lvl-warn  { color: var(--warn); }
   .log-line .lvl-error { color: var(--bad); }
 
   footer {
-    border-top: 1px solid var(--border);
-    padding: 0.5rem 1.4rem;
-    color: var(--muted);
-    font-size: 0.75rem;
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
+    border-top: 1px solid var(--border); padding: 0.45rem 1.25rem;
+    color: var(--muted); font-size: 0.72rem;
+    display: flex; justify-content: space-between; gap: 1rem;
   }
 </style>
 </head>
@@ -268,161 +257,206 @@
     <div class="brand">
       <div class="logo">EN</div>
       <div>
-        <div class="t1">BMW ENET Gateway</div>
-        <div class="t2" id="subtitle" aria-live="polite">Starting…</div>
+        <div class="t1">BMW ENET Gateway <span class="role">HOST</span></div>
+        <div class="t2" id="subtitle">Desktop · ISTA / E-Sys</div>
       </div>
     </div>
+    <nav class="tabs" aria-label="Views">
+      <button type="button" class="active" id="tab-overview" onclick="showView('overview')">Overview</button>
+      <button type="button" id="tab-settings" onclick="showView('settings')">Settings</button>
+    </nav>
     <div class="head-right">
-      <span class="chip">Pair&nbsp;<strong id="pair">—</strong>&nbsp;<button type="button" onclick="copyPair()" title="Copy pair code">copy</button></span>
+      <span class="chip">Pair <strong id="pair">—</strong> <button type="button" onclick="copyPair()">Copy</button></span>
       <span class="chip" id="mode">—</span>
     </div>
   </header>
 
-  <div class="layout">
-    <section class="col left">
-      <div class="section">
-        <h2>System status</h2>
-        <div class="status-list">
-          <div class="status-row" id="row-gw">
-            <div>
-              <div class="label">Gateway tunnel</div>
-              <div class="detail" id="gw-detail">—</div>
+  <div class="view active" id="view-overview">
+    <div class="layout">
+      <section class="col left">
+        <div class="section">
+          <h2>System status</h2>
+          <div class="status-list">
+            <div class="status-row" id="row-gw">
+              <div>
+                <div class="label">Gateway tunnel</div>
+                <div class="detail" id="gw-detail">—</div>
+              </div>
+              <span class="badge off" id="gw-badge">STOPPED</span>
             </div>
-            <span class="badge off" id="gw-badge">STOPPED</span>
-          </div>
-          <div class="status-row" id="row-l2">
-            <div>
-              <div class="label">ISTA bridge (L2)</div>
-              <div class="detail" id="l2-detail">Npcap + BMW-ENET adapter</div>
+            <div class="status-row" id="row-l2">
+              <div>
+                <div class="label">ISTA bridge (L2)</div>
+                <div class="detail" id="l2-detail">Npcap + BMW-ENET adapter</div>
+              </div>
+              <span class="badge off" id="l2-badge">—</span>
             </div>
-            <span class="badge off" id="l2-badge">—</span>
-          </div>
-          <div class="status-row" id="row-lap">
-            <div>
-              <div class="label">Laptop connection</div>
-              <div class="detail" id="lap-detail">Waiting for Client…</div>
+            <div class="status-row" id="row-lap">
+              <div>
+                <div class="label">Laptop connection</div>
+                <div class="detail" id="lap-detail">Waiting for Client…</div>
+              </div>
+              <span class="badge off" id="lap-badge">WAITING</span>
             </div>
-            <span class="badge off" id="lap-badge">WAITING</span>
-          </div>
-          <div class="status-row" id="row-veh">
-            <div>
-              <div class="label">Vehicle ENET</div>
-              <div class="detail" id="veh-detail">No link yet</div>
+            <div class="status-row" id="row-veh">
+              <div>
+                <div class="label">Vehicle ENET</div>
+                <div class="detail" id="veh-detail">No link yet</div>
+              </div>
+              <span class="badge off" id="veh-badge">DOWN</span>
             </div>
-            <span class="badge off" id="veh-badge">DOWN</span>
-          </div>
-          <div class="status-row" id="row-awk">
-            <div>
-              <div class="label">Vehicle state</div>
-              <div class="detail" id="awk-detail">Ignition / wake unknown</div>
+            <div class="status-row" id="row-awk">
+              <div>
+                <div class="label">Vehicle state</div>
+                <div class="detail" id="awk-detail">Ignition / wake unknown</div>
+              </div>
+              <span class="badge off" id="awk-badge">SLEEP</span>
             </div>
-            <span class="badge off" id="awk-badge">SLEEP</span>
           </div>
         </div>
-      </div>
 
-      <div class="section">
-        <h2>Performance</h2>
-        <div class="metrics">
-          <div class="metric">
-            <div class="k">Latency</div>
-            <div class="v" id="m-rtt">—</div>
-            <div class="s" id="m-rtt-s">p50 / p99</div>
-          </div>
-          <div class="metric">
-            <div class="k">Throughput</div>
-            <div class="v" id="m-bw">—</div>
-            <div class="s" id="m-bw-s">RX + TX</div>
-          </div>
-          <div class="metric">
-            <div class="k">Packet rate</div>
-            <div class="v" id="m-pps">—</div>
-            <div class="s" id="m-pps-s">in / out · errors</div>
-          </div>
-          <div class="metric">
-            <div class="k">CPU</div>
-            <div class="v" id="m-cpu">—</div>
-            <div class="s">host process</div>
+        <div class="section">
+          <h2>Performance</h2>
+          <div class="metrics">
+            <div class="metric">
+              <div class="k">Latency</div>
+              <div class="v" id="m-rtt">—</div>
+              <div class="s" id="m-rtt-s">p50 / p99</div>
+            </div>
+            <div class="metric">
+              <div class="k">Throughput</div>
+              <div class="v" id="m-bw">—</div>
+              <div class="s" id="m-bw-s">RX + TX</div>
+            </div>
+            <div class="metric">
+              <div class="k">Packet rate</div>
+              <div class="v" id="m-pps">—</div>
+              <div class="s" id="m-pps-s">in / out · errors</div>
+            </div>
+            <div class="metric">
+              <div class="k">CPU</div>
+              <div class="v" id="m-cpu">—</div>
+              <div class="s">host process</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="section">
-        <div class="banner no" id="safety" role="status" aria-live="polite">
-          <span class="icon" id="safety-icon">⏳</span>
-          <span><strong>Flash safety:</strong> <span id="safety-txt">checking…</span></span>
+        <div class="section">
+          <div class="banner no" id="safety" role="status" aria-live="polite">
+            <span class="dot"></span>
+            <span><strong>Flash safety:</strong> <span id="safety-txt">checking…</span></span>
+          </div>
         </div>
-      </div>
 
-      <div class="section" id="update-box" style="display:none">
-        <div class="banner ok" role="status">
-          <span class="icon">⬆️</span>
-          <span><strong>Update available:</strong> <span id="update-txt">v?</span></span>
-          <button class="primary" type="button" style="margin-left:auto" onclick="post('/api/update')">Update now</button>
+        <div class="section" id="update-box" style="display:none">
+          <div class="banner ok" role="status">
+            <span class="dot"></span>
+            <span><strong>Update available:</strong> <span id="update-txt">v?</span></span>
+            <button class="primary" type="button" style="margin-left:auto" onclick="post('/api/update')">Update now</button>
+          </div>
         </div>
+
+        <div class="section help" id="ista-box">
+          <div class="title">ISTA / E-Sys checklist</div>
+          <ol>
+            <li>Npcap installed on <strong>both</strong> PCs (WinPcap-compatible mode)</li>
+            <li>Adapter <code>BMW-ENET</code> exists here at <code>169.254.1.1</code></li>
+            <li>Laptop: ENET cable in car + ignition ON (Vehicle awake turns green)</li>
+            <li>In ISTA select interface <code>BMW-ENET</code></li>
+          </ol>
+        </div>
+
+        <div class="section help" id="peer-box" style="display:none">
+          <div class="title">Laptop not connecting?</div>
+          <p>
+            The Client auto-finds this PC by pair code. If it stays Waiting, open
+            <code>http://127.0.0.1:47903/</code> on the laptop → <strong>Auto-find desktop</strong>,
+            or enter this PC’s IP as a hint:
+          </p>
+          <div class="ip-row" id="ip-row"></div>
+          <p style="margin-top:0.5rem">Same router required — Guest / AP-isolation Wi‑Fi will not work.</p>
+        </div>
+
+        <div class="section help" id="hints-box">
+          <div class="title">Get connected</div>
+          <ol id="hints"></ol>
+        </div>
+
+        <div class="section actions">
+          <button class="primary" type="button" onclick="post('/api/restart')">Restart tunnel</button>
+          <button type="button" id="btn-startstop" onclick="toggleTunnel()">Stop tunnel</button>
+          <button type="button" onclick="post('/api/complete-setup')">Mark setup complete</button>
+          <button type="button" onclick="exportLogs()">Export logs</button>
+        </div>
+      </section>
+
+      <section class="col right">
+        <div class="log-panel">
+          <h2>Activity log</h2>
+          <div class="log-toolbar">
+            <input id="log-filter" placeholder="Filter logs…" aria-label="Filter activity log" oninput="renderLogs()"/>
+            <button type="button" onclick="clearLogsView()">Clear view</button>
+          </div>
+          <div class="log-box" id="log-box" aria-live="off"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="view" id="view-settings">
+    <div class="settings-wrap">
+      <div class="section card">
+        <div class="title">Pairing</div>
+        <p>The laptop Client must use the <strong>same pair code and password</strong> as this Host. Changing either restarts the tunnel.</p>
+        <div class="field" style="margin-top:0.85rem">
+          <label>Current pair code</label>
+          <div class="pair-display" id="set-pair-display">—</div>
+        </div>
+        <div class="field">
+          <label for="set-pair">Set pair code</label>
+          <div class="inline-fields">
+            <input id="set-pair" type="text" placeholder="BMW-XXXX" autocomplete="off" spellcheck="false"/>
+            <button type="button" onclick="generatePair()">Generate</button>
+            <button class="primary" type="button" onclick="savePair()">Save</button>
+          </div>
+          <div class="hint">Shown on the Host and typed on the Client. Generate a new code if this one was shared accidentally.</div>
+        </div>
+        <div class="field">
+          <label for="set-pass">Tunnel password</label>
+          <div class="inline-fields">
+            <input id="set-pass" type="password" placeholder="Leave blank to keep current" autocomplete="new-password"/>
+            <button type="button" id="btn-show-pass" onclick="togglePass()">Show</button>
+            <button class="primary" type="button" onclick="savePassword()">Save</button>
+            <button class="ghost" type="button" onclick="clearPassword()">Remove</button>
+          </div>
+          <div class="hint" id="pass-hint">Optional on the same LAN. Required for Internet / relay. Set the identical password on the Client.</div>
+        </div>
+        <div class="msg" id="pair-msg" aria-live="polite"></div>
       </div>
 
-      <div class="section help" id="updates-settings">
+      <div class="section card" id="updates-settings">
         <div class="title">Updates</div>
-        <p style="margin:0 0 0.6rem;color:var(--muted);font-size:0.88rem">
-          Installed <strong id="upd-cur">v?</strong>.
-          Host checks GitHub every time it starts.
-        </p>
-        <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.65rem;font-size:0.9rem">
+        <p>Installed <strong id="upd-cur">v?</strong>. Host checks GitHub every time it starts.</p>
+        <label class="switch" style="margin:0.7rem 0">
           <input type="checkbox" id="auto-update" onchange="saveAutoUpdate()"/>
           Automatically install updates when idle
         </label>
-        <div class="actions" style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <div class="actions">
           <button type="button" class="primary" onclick="checkUpdate()">Check for updates</button>
           <button type="button" id="btn-update-now" style="display:none" onclick="post('/api/update')">Update now</button>
         </div>
-        <p id="upd-msg" style="margin:0.55rem 0 0;color:var(--muted);font-size:0.86rem"></p>
+        <p class="msg" id="upd-msg"></p>
       </div>
 
-      <div class="section help" id="ista-box">
-        <div class="title">ISTA / E-Sys checklist</div>
-        <ol>
-          <li>Npcap installed on <strong>both</strong> PCs (WinPcap-compatible mode)</li>
-          <li>Adapter <code>BMW-ENET</code> exists here at <code>169.254.1.1</code> — see ISTA bridge above</li>
-          <li>Laptop: ENET cable in car + ignition ON (Vehicle awake turns green)</li>
-          <li>In ISTA select interface <code>BMW-ENET</code></li>
-        </ol>
-      </div>
-
-      <div class="section help" id="peer-box" style="display:none">
-        <div class="title">Laptop not connecting?</div>
-        <p>
-          The Client auto-finds this PC by pair code (DHCP-friendly). If it stays Waiting, open
-          <code>http://127.0.0.1:47903/</code> on the laptop → <strong>Auto-find desktop</strong>,
-          or enter this PC's IP as a hint:
-        </p>
-        <div class="ip-row" id="ip-row"></div>
-        <p style="margin-top:0.5rem">Same router required — Guest / AP-isolation Wi‑Fi will not work.</p>
-      </div>
-
-      <div class="section help" id="hints-box">
-        <div class="title">Get connected</div>
-        <ol id="hints"></ol>
-      </div>
-
-      <div class="section actions">
-        <button class="primary" type="button" onclick="post('/api/restart')">Restart tunnel</button>
-        <button type="button" id="btn-startstop" onclick="toggleTunnel()">Stop tunnel</button>
-        <button type="button" onclick="post('/api/complete-setup')">Mark setup complete</button>
-        <button type="button" onclick="exportLogs()">Export logs</button>
-      </div>
-    </section>
-
-    <section class="col right">
-      <div class="log-panel">
-        <h2>Activity log</h2>
-        <div class="log-toolbar">
-          <input id="log-filter" placeholder="Filter logs…" aria-label="Filter activity log" oninput="renderLogs()"/>
-          <button type="button" onclick="clearLogsView()">Clear view</button>
+      <div class="section card">
+        <div class="title">Tunnel</div>
+        <p>Restart after adapter or Npcap changes. Stop only if you need ISTA disconnected.</p>
+        <div class="actions" style="margin-top:0.65rem">
+          <button class="primary" type="button" onclick="post('/api/restart')">Restart tunnel</button>
+          <button type="button" onclick="exportLogs()">Export logs</button>
         </div>
-        <div class="log-box" id="log-box" aria-live="off"></div>
       </div>
-    </section>
+    </div>
   </div>
 
   <footer>
@@ -434,6 +468,14 @@
 let logs = [];
 let hideBefore = 0;
 let running = false;
+let lastPair = '';
+
+function showView(name) {
+  document.getElementById('view-overview').classList.toggle('active', name === 'overview');
+  document.getElementById('view-settings').classList.toggle('active', name === 'settings');
+  document.getElementById('tab-overview').classList.toggle('active', name === 'overview');
+  document.getElementById('tab-settings').classList.toggle('active', name === 'settings');
+}
 
 function fmtRate(bps) {
   if (bps >= 1e6) return (bps / 1e6).toFixed(2) + ' Mbps';
@@ -449,6 +491,13 @@ function setBadge(el, text, kind) {
 function setRow(rowId, on) {
   const row = document.getElementById(rowId);
   if (row) row.classList.toggle('on', !!on);
+}
+
+function setMsg(id, text, kind) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'msg' + (kind ? (' ' + kind) : '');
 }
 
 async function post(url) {
@@ -509,8 +558,15 @@ function escapeHtml(s) {
 }
 
 function renderStatus(s) {
-  document.getElementById('subtitle').textContent = s.friendly_status || 'F-Series remote diagnostics';
-  document.getElementById('pair').textContent = s.pair_code || '—';
+  document.getElementById('subtitle').textContent = s.friendly_status || 'Desktop · ISTA / E-Sys';
+  const pair = s.pair_code || '—';
+  document.getElementById('pair').textContent = pair;
+  document.getElementById('set-pair-display').textContent = pair;
+  const pairInput = document.getElementById('set-pair');
+  if (pair !== lastPair && !pairInput.matches(':focus') && !pairInput.value) {
+    pairInput.value = s.pair_code || '';
+  }
+  lastPair = pair;
   let mode = s.network_mode_label || s.network_mode || '—';
   if (s.relay_url) mode += ' · ' + s.relay_url;
   document.getElementById('mode').textContent = mode;
@@ -586,7 +642,6 @@ function renderStatus(s) {
   const safe = !!(s.flash_safety && s.flash_safety.safe);
   const safety = document.getElementById('safety');
   safety.className = 'banner ' + (safe ? 'ok' : 'no');
-  document.getElementById('safety-icon').textContent = safe ? '✅' : '⚠️';
   document.getElementById('safety-txt').textContent = safe
     ? ('SAFE' + ((s.flash_safety && s.flash_safety.warning) ? (' — ' + s.flash_safety.warning) : ''))
     : ('Not safe — do not flash yet' + ((s.flash_safety && s.flash_safety.warning) ? (' — ' + s.flash_safety.warning) : ''));
@@ -601,6 +656,13 @@ function renderStatus(s) {
   if (autoEl && document.activeElement !== autoEl) autoEl.checked = !!s.auto_update;
   const nowBtn = document.getElementById('btn-update-now');
   if (nowBtn) nowBtn.style.display = upd ? 'inline-block' : 'none';
+
+  const passHint = document.getElementById('pass-hint');
+  if (passHint) {
+    passHint.textContent = s.password_set
+      ? 'A password is set. Leave the field blank to keep it, or Remove to disable encryption.'
+      : 'No password set. Optional on the same LAN; required for Internet / relay. Use the identical password on the Client.';
+  }
 
   const hints = s.setup_hints || [];
   document.getElementById('hints').innerHTML = hints.map(h => '<li>' + escapeHtml(h) + '</li>').join('');
@@ -624,6 +686,81 @@ function copyPair() {
   copyText(document.getElementById('pair').textContent || '');
 }
 
+function togglePass() {
+  const el = document.getElementById('set-pass');
+  const btn = document.getElementById('btn-show-pass');
+  const show = el.type === 'password';
+  el.type = show ? 'text' : 'password';
+  if (btn) btn.textContent = show ? 'Hide' : 'Show';
+}
+
+async function postSettings(body) {
+  const r = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+async function savePair() {
+  const code = document.getElementById('set-pair').value.trim();
+  if (!code) {
+    setMsg('pair-msg', 'Enter a pair code, or click Generate.', 'err');
+    return;
+  }
+  try {
+    const j = await postSettings({ pair_code: code });
+    setMsg('pair-msg', j.message || 'Pair code saved', j.ok ? 'ok' : 'err');
+    pushLocal(j.ok ? 'info' : 'warn', j.message || 'Pair code saved');
+    document.getElementById('set-pair').value = '';
+    await refreshNow();
+  } catch (e) {
+    setMsg('pair-msg', String(e), 'err');
+  }
+}
+
+async function generatePair() {
+  try {
+    const j = await postSettings({ generate_pair_code: true });
+    setMsg('pair-msg', j.message || 'New pair code generated — set the same code on the Client.', j.ok ? 'ok' : 'err');
+    pushLocal(j.ok ? 'info' : 'warn', j.message || 'Generated pair code');
+    document.getElementById('set-pair').value = '';
+    await refreshNow();
+  } catch (e) {
+    setMsg('pair-msg', String(e), 'err');
+  }
+}
+
+async function savePassword() {
+  const p = document.getElementById('set-pass').value;
+  if (!p) {
+    setMsg('pair-msg', 'Enter a new password, or click Remove to clear it.', 'err');
+    return;
+  }
+  try {
+    const j = await postSettings({ password: p });
+    setMsg('pair-msg', j.message || 'Password saved — set the same password on the Client.', j.ok ? 'ok' : 'err');
+    pushLocal(j.ok ? 'info' : 'warn', j.message || 'Password saved');
+    document.getElementById('set-pass').value = '';
+    await refreshNow();
+  } catch (e) {
+    setMsg('pair-msg', String(e), 'err');
+  }
+}
+
+async function clearPassword() {
+  try {
+    const j = await postSettings({ clear_password: true });
+    setMsg('pair-msg', j.message || 'Password removed', j.ok ? 'ok' : 'err');
+    pushLocal(j.ok ? 'info' : 'warn', j.message || 'Password removed');
+    document.getElementById('set-pass').value = '';
+    await refreshNow();
+  } catch (e) {
+    setMsg('pair-msg', String(e), 'err');
+  }
+}
+
 async function checkUpdate() {
   const msg = document.getElementById('upd-msg');
   if (msg) msg.textContent = 'Checking GitHub for a newer release…';
@@ -642,11 +779,7 @@ async function checkUpdate() {
 async function saveAutoUpdate() {
   const on = document.getElementById('auto-update').checked;
   try {
-    await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ auto_update: on }),
-    });
+    await postSettings({ auto_update: on });
     pushLocal('info', on ? 'Auto-update enabled' : 'Auto-update disabled');
   } catch (e) {
     pushLocal('error', String(e));

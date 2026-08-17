@@ -3,210 +3,167 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>BMW ENET Client — Laptop</title>
+<title>BMW ENET — Client</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --panel: #151b23;
-    --card: #1a222c;
-    --card-hi: #202a36;
-    --border: #2a3441;
-    --border-hi: #3a4757;
-    --text: #e9eef5;
-    --muted: #8d9cae;
-    --ok: #33c274;
-    --warn: #e6a43b;
-    --bad: #e25a4a;
-    --accent: #4aa8c7;
-    --accent-dim: #2a6f84;
-    --radius: 12px;
+    --bg: #0b0f14;
+    --panel: #141b23;
+    --card: #181f28;
+    --card-hi: #1e2732;
+    --border: #26303b;
+    --border-hi: #354354;
+    --text: #eef3f8;
+    --muted: #8b9aab;
+    --faint: #6b7a8c;
+    --ok: #3dcc86;
+    --warn: #e0b14a;
+    --bad: #e05d52;
+    --accent: #4db3d4;
+    --accent-2: #2b7d99;
+    --radius: 10px;
+    --shadow: 0 10px 30px rgba(0,0,0,.28);
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     min-height: 100vh;
-    font-family: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
+    font-family: var(--sans);
     background:
-      radial-gradient(1100px 500px at 15% -10%, #16303a 0%, transparent 60%),
-      radial-gradient(900px 400px at 110% 0%, #1a2430 0%, transparent 55%),
+      radial-gradient(900px 420px at 8% -8%, rgba(43,125,153,.22), transparent 55%),
+      radial-gradient(700px 360px at 100% 0%, rgba(20,40,58,.45), transparent 50%),
       var(--bg);
     color: var(--text);
     display: flex;
     justify-content: center;
-    padding: 1.25rem;
+    padding: 1.15rem;
   }
-  .wrap { width: 100%; max-width: 560px; }
+  .wrap { width: 100%; max-width: 640px; }
   header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.8rem;
-    margin-bottom: 1.1rem;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 0.8rem; margin-bottom: 0.95rem; flex-wrap: wrap;
   }
   .brand { display: flex; align-items: center; gap: 0.7rem; }
-  .brand .logo {
-    width: 34px; height: 34px;
-    border-radius: 9px;
-    background: linear-gradient(135deg, var(--accent-dim), #1c3d4a);
-    border: 1px solid var(--border-hi);
+  .logo {
+    width: 36px; height: 36px; border-radius: 9px;
+    background: linear-gradient(160deg, #2f8aa8, #163845);
+    border: 1px solid rgba(77,179,212,.35);
     display: grid; place-items: center;
-    font-weight: 800; font-size: 0.72rem;
-    color: #cfe9f2;
+    font-weight: 800; font-size: 0.68rem; letter-spacing: 0.04em; color: #d7f1f8;
   }
-  .brand .t1 { font-weight: 700; }
-  .brand .t2 { color: var(--muted); font-size: 0.8rem; margin-top: 0.1rem; }
+  .brand .t1 { font-weight: 650; font-size: 0.95rem; }
+  .brand .t2 { color: var(--muted); font-size: 0.75rem; margin-top: 0.08rem; }
+  .role {
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em; color: var(--accent);
+    border: 1px solid rgba(77,179,212,.35); background: rgba(77,179,212,.08);
+    border-radius: 999px; padding: 0.1rem 0.42rem; margin-left: 0.3rem; vertical-align: 1px;
+  }
   .chip {
-    border: 1px solid var(--border-hi);
-    background: var(--card);
-    border-radius: 999px;
-    padding: 0.32rem 0.75rem;
-    font-size: 0.82rem;
-    color: var(--muted);
-    white-space: nowrap;
+    border: 1px solid var(--border-hi); background: var(--card); border-radius: 999px;
+    padding: 0.3rem 0.72rem; font-size: 0.78rem; color: var(--muted); white-space: nowrap;
   }
-  .chip strong { color: var(--accent); letter-spacing: 0.06em; }
-
-  .sub {
-    color: var(--muted);
-    font-size: 0.9rem;
-    margin: 0 0 0.9rem;
-    min-height: 1.2em;
+  .chip strong { color: var(--accent); letter-spacing: 0.1em; font-family: var(--mono); }
+  nav.tabs {
+    display: flex; gap: 0.2rem; background: var(--card); border: 1px solid var(--border);
+    border-radius: 9px; padding: 0.18rem; margin-bottom: 0.95rem;
   }
+  nav.tabs button {
+    all: unset; cursor: pointer; padding: 0.42rem 0.95rem; border-radius: 7px;
+    font-size: 0.82rem; font-weight: 650; color: var(--muted);
+  }
+  nav.tabs button:hover { color: var(--text); }
+  nav.tabs button.active { background: var(--card-hi); color: var(--text); box-shadow: var(--shadow); }
+  .view { display: none; }
+  .view.active { display: block; }
+  .sub { color: var(--muted); font-size: 0.88rem; margin: 0 0 0.85rem; min-height: 1.2em; }
 
-  .rows { display: flex; flex-direction: column; gap: 0.5rem; }
+  .rows { display: flex; flex-direction: column; gap: 0.45rem; }
   .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.8rem;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.78rem 0.95rem;
-    transition: border-color 0.2s;
+    display: flex; align-items: center; justify-content: space-between; gap: 0.8rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.72rem 0.9rem; transition: border-color .2s, background .2s;
   }
-  .row.on { border-color: rgba(51, 194, 116, 0.4); }
-  .row .label { font-weight: 600; font-size: 0.95rem; }
-  .row .detail { color: var(--muted); font-size: 0.82rem; margin-top: 0.18rem; }
+  .row.on { border-color: rgba(61,204,134,.38); background: rgba(61,204,134,.05); }
+  .row .label { font-weight: 650; font-size: 0.92rem; }
+  .row .detail { color: var(--muted); font-size: 0.8rem; margin-top: 0.16rem; }
   .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    padding: 0.3rem 0.62rem;
-    border-radius: 999px;
-    white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 0.38rem;
+    font-size: 0.68rem; font-weight: 750; letter-spacing: 0.06em;
+    padding: 0.28rem 0.58rem; border-radius: 999px; white-space: nowrap;
   }
-  .badge::before {
-    content: "";
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-  .badge.ok   { background: rgba(51,194,116,0.16); color: var(--ok); }
-  .badge.warn { background: rgba(230,164,59,0.16); color: var(--warn); }
-  .badge.off  { background: rgba(141,156,174,0.13); color: var(--muted); }
-  .badge.bad  { background: rgba(226,90,74,0.16);  color: var(--bad); }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .badge.ok   { background: rgba(61,204,134,.14); color: var(--ok); }
+  .badge.warn { background: rgba(224,177,74,.14); color: var(--warn); }
+  .badge.off  { background: rgba(139,154,171,.12); color: var(--muted); }
+  .badge.bad  { background: rgba(224,93,82,.14); color: var(--bad); }
 
-  .metrics {
-    margin-top: 0.9rem;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.5rem;
-  }
+  .metrics { margin-top: 0.85rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.45rem; }
   .metric {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.6rem 0.75rem;
-    text-align: center;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.6rem 0.7rem; text-align: center;
   }
-  .metric .k { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; }
-  .metric .v { font-size: 1.1rem; font-weight: 700; margin-top: 0.22rem; font-variant-numeric: tabular-nums; }
+  .metric .k { color: var(--faint); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; }
+  .metric .v { font-size: 1.08rem; font-weight: 700; margin-top: 0.2rem; font-variant-numeric: tabular-nums; }
 
-  .panel {
-    margin-top: 1rem;
-    padding: 0.95rem 1.05rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--panel);
+  .panel, .card {
+    margin-top: 0.95rem; padding: 0.95rem 1.05rem;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
   }
-  .panel h2 { margin: 0 0 0.35rem; font-size: 0.98rem; }
-  .panel p { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.86rem; line-height: 1.5; }
-  .panel label {
-    display: block;
-    font-size: 0.78rem;
-    color: var(--muted);
-    margin-bottom: 0.28rem;
+  .panel h2, .card .title { margin: 0 0 0.28rem; font-size: 0.96rem; font-weight: 650; }
+  .panel p, .card p { margin: 0 0 0.7rem; color: var(--muted); font-size: 0.84rem; line-height: 1.5; }
+  .field { margin-bottom: 0.75rem; }
+  .field label {
+    display: block; font-size: 0.72rem; font-weight: 650; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: 0.3rem;
   }
-  .field { margin-bottom: 0.7rem; }
-  .panel input {
-    width: 100%;
-    padding: 0.55rem 0.7rem;
-    border-radius: 9px;
-    border: 1px solid var(--border);
-    background: #0c1014;
-    color: var(--text);
-    font-size: 0.95rem;
+  .field .hint { color: var(--muted); font-size: 0.76rem; margin-top: 0.28rem; line-height: 1.4; }
+  .panel input, .card input, .field input {
+    width: 100%; padding: 0.55rem 0.7rem; border-radius: 8px; border: 1px solid var(--border);
+    background: #0c1014; color: var(--text); font-size: 0.94rem; font-family: var(--mono);
   }
-  .panel input:focus { outline: 2px solid var(--accent-dim); outline-offset: 1px; }
-  .actions { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
+  .panel input:focus, .card input:focus { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+  .inline-fields { display: flex; gap: 0.4rem; align-items: center; }
+  .inline-fields input { flex: 1; }
+  .actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   button {
-    border: 1px solid var(--border-hi);
-    border-radius: 9px;
-    padding: 0.55rem 0.95rem;
-    font-weight: 650;
-    font-size: 0.88rem;
-    cursor: pointer;
-    background: var(--card-hi);
-    color: var(--text);
-    transition: filter 0.15s, transform 0.05s;
+    border: 1px solid var(--border-hi); border-radius: 8px; padding: 0.5rem 0.9rem;
+    font-weight: 650; font-size: 0.84rem; cursor: pointer;
+    background: var(--card-hi); color: var(--text);
+    transition: filter .15s, transform .05s;
   }
-  button:hover { filter: brightness(1.12); }
+  button:hover { filter: brightness(1.1); }
   button:active { transform: translateY(1px); }
-  button.primary { background: var(--accent-dim); border-color: var(--accent); }
-  button:disabled { opacity: 0.55; cursor: default; }
-  .msg { margin-top: 0.6rem; font-size: 0.86rem; color: var(--muted); min-height: 1.2em; }
+  button.primary { background: var(--accent-2); border-color: var(--accent); }
+  button.ghost { background: transparent; }
+  button:disabled { opacity: 0.5; cursor: default; transform: none; }
+  .switch { display: flex; align-items: center; gap: 0.6rem; font-size: 0.88rem; cursor: pointer; user-select: none; }
+  .switch input { width: 16px; height: 16px; accent-color: var(--accent-2); }
+  .pair-display {
+    font-family: var(--mono); font-size: 1.25rem; font-weight: 700; letter-spacing: 0.14em;
+    background: #0c1014; border: 1px solid var(--border-hi); border-radius: 8px;
+    padding: 0.62rem 0.8rem; color: var(--accent);
+  }
+  .msg { margin-top: 0.55rem; font-size: 0.84rem; color: var(--muted); min-height: 1.2em; }
   .msg.ok { color: var(--ok); }
   .msg.err { color: var(--bad); }
-  .hint-line { color: var(--muted); font-size: 0.8rem; }
-
+  .hint-line { color: var(--muted); font-size: 0.78rem; }
   .checklist {
-    margin-top: 1rem;
-    padding: 0.85rem 1rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--panel);
-    color: var(--muted);
-    font-size: 0.85rem;
+    margin-top: 0.95rem; padding: 0.85rem 1rem; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--panel); color: var(--muted); font-size: 0.84rem;
   }
-  .checklist .title { color: var(--accent); font-weight: 650; margin-bottom: 0.3rem; }
+  .checklist .title { color: var(--text); font-weight: 650; margin-bottom: 0.28rem; }
   .checklist ol { margin: 0.2rem 0 0 1.1rem; padding: 0; line-height: 1.55; }
   code {
-    font-family: Consolas, monospace;
-    font-size: 0.8rem;
-    color: var(--text);
-    background: #0c1014;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 0.05rem 0.35rem;
+    font-family: var(--mono); font-size: 0.78rem; color: var(--text);
+    background: #0c1014; border: 1px solid var(--border); border-radius: 5px; padding: 0.04rem 0.32rem;
   }
-  details.adv { margin-top: 0.85rem; }
-  details.adv summary {
-    cursor: pointer;
-    color: var(--muted);
-    font-size: 0.84rem;
-    user-select: none;
-  }
-  details.adv[open] summary { margin-bottom: 0.6rem; }
+  details.adv { margin-top: 0.8rem; }
+  details.adv summary { cursor: pointer; color: var(--muted); font-size: 0.82rem; user-select: none; }
+  details.adv[open] summary { margin-bottom: 0.55rem; }
   footer {
-    margin-top: 1.1rem;
-    color: var(--muted);
-    font-size: 0.75rem;
-    display: flex;
-    justify-content: space-between;
+    margin-top: 1.05rem; color: var(--muted); font-size: 0.72rem;
+    display: flex; justify-content: space-between; gap: 1rem;
   }
 </style>
 </head>
@@ -216,121 +173,152 @@
     <div class="brand">
       <div class="logo">EN</div>
       <div>
-        <div class="t1">BMW ENET Client</div>
-        <div class="t2">Laptop at the car</div>
+        <div class="t1">BMW ENET Client <span class="role">LAPTOP</span></div>
+        <div class="t2">At the car · ENET cable</div>
       </div>
     </div>
     <span class="chip">Pair <strong id="pair-chip">—</strong></span>
   </header>
 
-  <p class="sub" id="sub" aria-live="polite">Waiting for status…</p>
+  <nav class="tabs" aria-label="Views">
+    <button type="button" class="active" id="tab-status" onclick="showView('status')">Status</button>
+    <button type="button" id="tab-settings" onclick="showView('settings')">Settings</button>
+  </nav>
 
-  <div class="rows">
-    <div class="row" id="row-desk">
-      <div>
-        <div class="label">Desktop</div>
-        <div class="detail" id="desk-d">—</div>
-      </div>
-      <span class="badge off" id="desk-b">—</span>
-    </div>
-    <div class="row" id="row-l2">
-      <div>
-        <div class="label">Car bridge (L2)</div>
-        <div class="detail" id="l2-d">Npcap capture on the ENET adapter</div>
-      </div>
-      <span class="badge off" id="l2-b">—</span>
-    </div>
-    <div class="row" id="row-enet">
-      <div>
-        <div class="label">ENET cable</div>
-        <div class="detail" id="enet-d">—</div>
-      </div>
-      <span class="badge off" id="enet-b">—</span>
-    </div>
-    <div class="row" id="row-veh">
-      <div>
-        <div class="label">Vehicle</div>
-        <div class="detail" id="veh-d">—</div>
-      </div>
-      <span class="badge off" id="veh-b">—</span>
-    </div>
-  </div>
+  <div class="view active" id="view-status">
+    <p class="sub" id="sub" aria-live="polite">Waiting for status…</p>
 
-  <div class="metrics">
-    <div class="metric">
-      <div class="k">Latency</div>
-      <div class="v" id="m-rtt">—</div>
-    </div>
-    <div class="metric">
-      <div class="k">Loss</div>
-      <div class="v" id="m-loss">—</div>
-    </div>
-    <div class="metric">
-      <div class="k">Version</div>
-      <div class="v" id="m-ver">—</div>
-    </div>
-  </div>
-
-  <div class="panel" id="connect-box">
-    <h2>Desktop connection</h2>
-    <p>
-      The Client <strong>auto-detects</strong> the desktop by pair code — no static IP needed.
-      If Desktop stays Waiting, click <strong>Auto-find</strong>.
-    </p>
-    <div class="actions">
-      <button id="btn-discover" class="primary" type="button">Auto-find desktop</button>
-      <span id="saved-peer" class="hint-line"></span>
+    <div class="rows">
+      <div class="row" id="row-desk">
+        <div>
+          <div class="label">Desktop</div>
+          <div class="detail" id="desk-d">—</div>
+        </div>
+        <span class="badge off" id="desk-b">—</span>
+      </div>
+      <div class="row" id="row-l2">
+        <div>
+          <div class="label">Car bridge (L2)</div>
+          <div class="detail" id="l2-d">Npcap capture on the ENET adapter</div>
+        </div>
+        <span class="badge off" id="l2-b">—</span>
+      </div>
+      <div class="row" id="row-enet">
+        <div>
+          <div class="label">ENET cable</div>
+          <div class="detail" id="enet-d">—</div>
+        </div>
+        <span class="badge off" id="enet-b">—</span>
+      </div>
+      <div class="row" id="row-veh">
+        <div>
+          <div class="label">Vehicle</div>
+          <div class="detail" id="veh-d">—</div>
+        </div>
+        <span class="badge off" id="veh-b">—</span>
+      </div>
     </div>
 
-    <details class="adv">
-      <summary>Manual IP hint (only if Auto-find fails)</summary>
-      <div class="field">
-        <label for="peer">Desktop IP — copy from the Host dashboard <code>http://127.0.0.1:47901/</code></label>
-        <input id="peer" type="text" inputmode="decimal" placeholder="192.168.1.50" autocomplete="off"/>
+    <div class="metrics">
+      <div class="metric">
+        <div class="k">Latency</div>
+        <div class="v" id="m-rtt">—</div>
       </div>
-      <div class="field">
-        <label for="pair">Pair code (optional)</label>
-        <input id="pair" type="text" placeholder="BMW-XXXX" autocomplete="off"/>
+      <div class="metric">
+        <div class="k">Loss</div>
+        <div class="v" id="m-loss">—</div>
       </div>
+      <div class="metric">
+        <div class="k">Version</div>
+        <div class="v" id="m-ver">—</div>
+      </div>
+    </div>
+
+    <div class="panel" id="connect-box">
+      <h2>Desktop connection</h2>
+      <p>
+        The Client <strong>auto-detects</strong> the desktop by pair code — no static IP needed.
+        If Desktop stays Waiting, click <strong>Auto-find</strong>.
+      </p>
       <div class="actions">
-        <button id="btn-connect" type="button">Connect with IP hint</button>
+        <button id="btn-discover" class="primary" type="button">Auto-find desktop</button>
+        <span id="saved-peer" class="hint-line"></span>
       </div>
-    </details>
-    <div class="msg" id="connect-msg" aria-live="polite"></div>
-  </div>
+      <details class="adv">
+        <summary>Manual IP hint (only if Auto-find fails)</summary>
+        <div class="field">
+          <label for="peer">Desktop IP — copy from the Host dashboard <code>http://127.0.0.1:47901/</code></label>
+          <input id="peer" type="text" inputmode="decimal" placeholder="192.168.1.50" autocomplete="off"/>
+        </div>
+        <div class="actions">
+          <button id="btn-connect" type="button">Connect with IP hint</button>
+        </div>
+      </details>
+      <div class="msg" id="connect-msg" aria-live="polite"></div>
+    </div>
 
-  <div class="panel" id="update-box" style="display:none">
-    <h2>Update available</h2>
-    <p id="update-txt">A newer version is ready. It installs automatically when idle, or update now.</p>
-    <div class="actions">
-      <button id="btn-update" class="primary" type="button">Update now</button>
+    <div class="panel" id="update-box" style="display:none">
+      <h2>Update available</h2>
+      <p id="update-txt">A newer version is ready. It installs automatically when idle, or update now.</p>
+      <div class="actions">
+        <button id="btn-update" class="primary" type="button">Update now</button>
+      </div>
+    </div>
+
+    <div class="checklist">
+      <div class="title">ISTA on the desktop — checklist</div>
+      <ol>
+        <li>Npcap installed on <strong>both</strong> PCs (WinPcap-compatible mode)</li>
+        <li>Car bridge above shows <strong>READY</strong></li>
+        <li>ENET cable in car + laptop, ignition ON → Vehicle AWAKE</li>
+        <li>Desktop ISTA: select interface <code>BMW-ENET</code></li>
+      </ol>
     </div>
   </div>
 
-  <div class="panel" id="settings-box">
-    <h2>Settings · Updates</h2>
-    <p>
-      Installed <strong id="upd-cur">v?</strong>. Client checks GitHub every time it starts.
-    </p>
-    <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem">
-      <input type="checkbox" id="auto-update"/>
-      Automatically install updates when idle
-    </label>
-    <div class="actions">
-      <button id="btn-check-update" class="primary" type="button">Check for updates</button>
-      <button id="btn-update-now2" type="button" style="display:none">Update now</button>
+  <div class="view" id="view-settings">
+    <div class="card">
+      <div class="title">Pairing</div>
+      <p>Must match the Host dashboard exactly. Changing pair code or password reconnects the tunnel.</p>
+      <div class="field" style="margin-top:0.7rem">
+        <label>Current pair code</label>
+        <div class="pair-display" id="set-pair-display">—</div>
+      </div>
+      <div class="field">
+        <label for="set-pair">Set pair code</label>
+        <div class="inline-fields">
+          <input id="set-pair" type="text" placeholder="BMW-XXXX" autocomplete="off" spellcheck="false"/>
+          <button type="button" onclick="generatePair()">Generate</button>
+          <button class="primary" type="button" onclick="savePair()">Save</button>
+        </div>
+        <div class="hint">Copy the code from the Host if you did not generate it here. Both PCs must match.</div>
+      </div>
+      <div class="field">
+        <label for="set-pass">Tunnel password</label>
+        <div class="inline-fields">
+          <input id="set-pass" type="password" placeholder="Leave blank to keep current" autocomplete="new-password"/>
+          <button type="button" id="btn-show-pass" onclick="togglePass()">Show</button>
+          <button class="primary" type="button" onclick="savePassword()">Save</button>
+          <button class="ghost" type="button" onclick="clearPassword()">Remove</button>
+        </div>
+        <div class="hint" id="pass-hint">Optional on the same LAN. Use the identical password as the Host.</div>
+      </div>
+      <div class="msg" id="pair-msg" aria-live="polite"></div>
     </div>
-    <div class="msg" id="upd-msg" aria-live="polite"></div>
-  </div>
 
-  <div class="checklist">
-    <div class="title">ISTA on the desktop — checklist</div>
-    <ol>
-      <li>Npcap installed on <strong>both</strong> PCs (WinPcap-compatible mode)</li>
-      <li>Car bridge above shows <strong>READY</strong></li>
-      <li>ENET cable in car + laptop, ignition ON → Vehicle AWAKE</li>
-      <li>Desktop ISTA: select interface <code>BMW-ENET</code></li>
-    </ol>
+    <div class="card" id="settings-box">
+      <div class="title">Updates</div>
+      <p>Installed <strong id="upd-cur">v?</strong>. Client checks GitHub every time it starts.</p>
+      <label class="switch" style="margin:0.55rem 0 0.75rem">
+        <input type="checkbox" id="auto-update"/>
+        Automatically install updates when idle
+      </label>
+      <div class="actions">
+        <button id="btn-check-update" class="primary" type="button">Check for updates</button>
+        <button id="btn-update-now2" type="button" style="display:none">Update now</button>
+      </div>
+      <div class="msg" id="upd-msg" aria-live="polite"></div>
+    </div>
   </div>
 
   <footer>
@@ -340,6 +328,12 @@
 </div>
 
 <script>
+function showView(name) {
+  document.getElementById('view-status').classList.toggle('active', name === 'status');
+  document.getElementById('view-settings').classList.toggle('active', name === 'settings');
+  document.getElementById('tab-status').classList.toggle('active', name === 'status');
+  document.getElementById('tab-settings').classList.toggle('active', name === 'settings');
+}
 function setBadge(el, text, kind) {
   el.textContent = text;
   el.className = 'badge ' + kind;
@@ -348,13 +342,27 @@ function setRow(id, on) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle('on', !!on);
 }
+function setMsg(id, text, kind) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'msg' + (kind ? (' ' + kind) : '');
+}
 
 let lastConfigured = '';
+let lastPair = '';
 
 async function refresh() {
   try {
     const s = await fetch('/api/status').then(r => r.json());
-    document.getElementById('pair-chip').textContent = s.pair_code || '—';
+    const pair = s.pair_code || '—';
+    document.getElementById('pair-chip').textContent = pair;
+    document.getElementById('set-pair-display').textContent = pair;
+    const pairInput = document.getElementById('set-pair');
+    if (pair !== lastPair && !pairInput.matches(':focus') && !pairInput.value) {
+      pairInput.value = s.pair_code || '';
+    }
+    lastPair = pair;
     document.getElementById('m-ver').textContent = s.version || '?';
     document.getElementById('foot-ver').textContent = 'v' + (s.version || '?');
     document.getElementById('sub').textContent = s.friendly || '';
@@ -394,17 +402,20 @@ async function refresh() {
     document.getElementById('m-loss').textContent = ((s.loss_rate || 0) * 100).toFixed(1) + '%';
 
     const peerInput = document.getElementById('peer');
-    const pairInput = document.getElementById('pair');
     if (s.configured_peer && s.configured_peer !== lastConfigured && !peerInput.matches(':focus')) {
       peerInput.value = s.configured_peer;
       lastConfigured = s.configured_peer;
     }
-    if (s.pair_code && !pairInput.matches(':focus') && !pairInput.value) {
-      pairInput.value = s.pair_code;
-    }
     document.getElementById('saved-peer').textContent = s.configured_peer
       ? ('Saved hint: ' + s.configured_peer)
       : '';
+
+    const passHint = document.getElementById('pass-hint');
+    if (passHint) {
+      passHint.textContent = s.password_set
+        ? 'A password is set. Leave the field blank to keep it, or Remove if the Host has none.'
+        : 'No password set. If the Host uses a password, enter the same one here.';
+    }
 
     const upd = s.update_available;
     document.getElementById('update-box').style.display = upd ? 'block' : 'none';
@@ -421,37 +432,36 @@ async function refresh() {
   }
 }
 
-function showMsg(text, kind) {
-  const msg = document.getElementById('connect-msg');
-  msg.textContent = text;
-  msg.className = 'msg' + (kind ? (' ' + kind) : '');
+function showConnectMsg(text, kind) {
+  setMsg('connect-msg', text, kind);
 }
 
 async function connect() {
   const btn = document.getElementById('btn-connect');
   const peer = document.getElementById('peer').value.trim();
-  const pair_code = document.getElementById('pair').value.trim();
+  const pair_code = document.getElementById('set-pair').value.trim()
+    || document.getElementById('pair-chip').textContent.trim();
   if (!peer) {
-    showMsg('Enter a desktop LAN IP, or use Auto-find desktop.', 'err');
+    showConnectMsg('Enter a desktop LAN IP, or use Auto-find desktop.', 'err');
     return;
   }
   btn.disabled = true;
-  showMsg('Saving hint and connecting…');
+  showConnectMsg('Saving hint and connecting…');
   try {
     const r = await fetch('/api/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ peer, pair_code: pair_code || null }),
+      body: JSON.stringify({ peer, pair_code: pair_code && pair_code !== '—' ? pair_code : null }),
     });
     const j = await r.json();
     if (!r.ok || !j.ok) {
-      showMsg(j.message || ('Connect failed (' + r.status + ')'), 'err');
+      showConnectMsg(j.message || ('Connect failed (' + r.status + ')'), 'err');
     } else {
-      showMsg(j.message || 'Saved — dialing desktop…', 'ok');
+      showConnectMsg(j.message || 'Saved — dialing desktop…', 'ok');
       lastConfigured = peer;
     }
   } catch (e) {
-    showMsg('Could not reach agent: ' + e, 'err');
+    showConnectMsg('Could not reach agent: ' + e, 'err');
   } finally {
     btn.disabled = false;
     refresh();
@@ -461,18 +471,18 @@ async function connect() {
 async function autoFind() {
   const btn = document.getElementById('btn-discover');
   btn.disabled = true;
-  showMsg('Auto-finding desktop…');
+  showConnectMsg('Auto-finding desktop…');
   try {
     const r = await fetch('/api/discover', { method: 'POST' });
     const j = await r.json();
     if (!r.ok || !j.ok) {
-      showMsg(j.message || 'Auto-find failed', 'err');
+      showConnectMsg(j.message || 'Auto-find failed', 'err');
     } else {
-      showMsg(j.message || 'Searching LAN…', 'ok');
+      showConnectMsg(j.message || 'Searching LAN…', 'ok');
       lastConfigured = '';
     }
   } catch (e) {
-    showMsg('Could not reach agent: ' + e, 'err');
+    showConnectMsg('Could not reach agent: ' + e, 'err');
   } finally {
     btn.disabled = false;
     refresh();
@@ -484,17 +494,17 @@ async function updateNow() {
   if (btn) btn.disabled = true;
   const msg = document.getElementById('upd-msg');
   if (msg) { msg.textContent = 'Updating…'; msg.className = 'msg'; }
-  showMsg('Updating…');
+  showConnectMsg('Updating…');
   try {
     const r = await fetch('/api/update', { method: 'POST' });
     const j = await r.json();
-    showMsg(j.message || 'Updating…', j.ok ? 'ok' : 'err');
+    showConnectMsg(j.message || 'Updating…', j.ok ? 'ok' : 'err');
     if (msg) {
       msg.textContent = j.message || 'Updating…';
       msg.className = 'msg' + (j.ok ? ' ok' : ' err');
     }
   } catch (e) {
-    showMsg('Update failed: ' + e, 'err');
+    showConnectMsg('Update failed: ' + e, 'err');
     if (msg) { msg.textContent = 'Update failed: ' + e; msg.className = 'msg err'; }
   } finally {
     if (btn) btn.disabled = false;
@@ -521,16 +531,20 @@ async function checkUpdate() {
   }
 }
 
+async function postSettings(body) {
+  const r = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
 async function saveAutoUpdate() {
   const on = document.getElementById('auto-update').checked;
   const msg = document.getElementById('upd-msg');
   try {
-    const r = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ auto_update: on }),
-    });
-    const j = await r.json();
+    const j = await postSettings({ auto_update: on });
     if (msg) {
       msg.textContent = j.message || (on ? 'Auto-update on' : 'Auto-update off');
       msg.className = 'msg ok';
@@ -538,6 +552,68 @@ async function saveAutoUpdate() {
   } catch (e) {
     if (msg) { msg.textContent = String(e); msg.className = 'msg err'; }
   }
+}
+
+async function savePair() {
+  const code = document.getElementById('set-pair').value.trim();
+  if (!code) {
+    setMsg('pair-msg', 'Enter the Host pair code, or click Generate.', 'err');
+    return;
+  }
+  try {
+    const j = await postSettings({ pair_code: code });
+    setMsg('pair-msg', j.message || 'Pair code saved', j.ok ? 'ok' : 'err');
+    document.getElementById('set-pair').value = '';
+    refresh();
+  } catch (e) {
+    setMsg('pair-msg', String(e), 'err');
+  }
+}
+
+async function generatePair() {
+  try {
+    const j = await postSettings({ generate_pair_code: true });
+    setMsg('pair-msg', j.message || 'Generated — set the same code on the Host.', j.ok ? 'ok' : 'err');
+    document.getElementById('set-pair').value = '';
+    refresh();
+  } catch (e) {
+    setMsg('pair-msg', String(e), 'err');
+  }
+}
+
+async function savePassword() {
+  const p = document.getElementById('set-pass').value;
+  if (!p) {
+    setMsg('pair-msg', 'Enter a new password, or click Remove to clear it.', 'err');
+    return;
+  }
+  try {
+    const j = await postSettings({ password: p });
+    setMsg('pair-msg', j.message || 'Password saved — must match the Host.', j.ok ? 'ok' : 'err');
+    document.getElementById('set-pass').value = '';
+    refresh();
+  } catch (e) {
+    setMsg('pair-msg', String(e), 'err');
+  }
+}
+
+async function clearPassword() {
+  try {
+    const j = await postSettings({ clear_password: true });
+    setMsg('pair-msg', j.message || 'Password removed', j.ok ? 'ok' : 'err');
+    document.getElementById('set-pass').value = '';
+    refresh();
+  } catch (e) {
+    setMsg('pair-msg', String(e), 'err');
+  }
+}
+
+function togglePass() {
+  const el = document.getElementById('set-pass');
+  const btn = document.getElementById('btn-show-pass');
+  const show = el.type === 'password';
+  el.type = show ? 'text' : 'password';
+  if (btn) btn.textContent = show ? 'Hide' : 'Show';
 }
 
 document.getElementById('btn-connect').addEventListener('click', connect);
@@ -548,6 +624,9 @@ document.getElementById('btn-check-update').addEventListener('click', checkUpdat
 document.getElementById('auto-update').addEventListener('change', saveAutoUpdate);
 document.getElementById('peer').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') connect();
+});
+document.getElementById('set-pair').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') savePair();
 });
 refresh();
 setInterval(refresh, 1000);

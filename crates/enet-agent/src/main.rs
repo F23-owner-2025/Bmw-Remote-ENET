@@ -11,12 +11,11 @@ use bytes::Bytes;
 use clap::Parser;
 use enet_core::config::{GatewayConfig, NetworkMode, Role};
 use enet_core::discover_gateways;
-use enet_core::discovery::{
-    adapter_link_up, detect_candidate_interfaces, pick_enet_interface,
-};
+use enet_core::discovery::{adapter_link_up, detect_candidate_interfaces, pick_enet_interface};
 use enet_core::logging::init_logging;
-use enet_core::stats::backoff_delay;
 use enet_core::state::ConnectionState;
+use enet_core::stats::backoff_delay;
+use enet_core::{generate_pair_code, normalize_pair_code};
 use enet_protocol::magic::DEFAULT_AGENT_API_PORT;
 use enet_tunnel::{
     EthernetPort, RelayTunnelEngine, RelayTunnelOptions, SimulatedEthernet, TunnelEngine,
@@ -85,8 +84,7 @@ fn try_acquire_instance() -> Option<InstanceGuard> {
         }
         const ERROR_ALREADY_EXISTS: u32 = 183;
         let name = b"Global\\BMW-ENET-Agent-SingleInstance\0";
-        let handle =
-            unsafe { CreateMutexA(std::ptr::null_mut(), 1, name.as_ptr()) };
+        let handle = unsafe { CreateMutexA(std::ptr::null_mut(), 1, name.as_ptr()) };
         if handle.is_null() {
             return Some(InstanceGuard { handle });
         }
@@ -153,6 +151,8 @@ struct LiveStatus {
     update_token: String,
     /// Auto-install new releases when idle.
     auto_update: RwLock<bool>,
+    /// True when a tunnel password is stored (never sent to the UI).
+    password_set: AtomicBool,
 }
 
 #[derive(Serialize)]
@@ -173,6 +173,7 @@ struct StatusJson {
     friendly: String,
     update_available: Option<String>,
     auto_update: bool,
+    password_set: bool,
 }
 
 #[derive(Deserialize)]
@@ -455,7 +456,13 @@ Set-ScheduledTask -TaskName $taskName -Action $action | Out-Null
             wd = install_dir.display().to_string().replace('\'', "''"),
         );
         let _ = Command::new("powershell")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ])
             .creation_flags(CREATE_NO_WINDOW)
             .status();
     }
@@ -578,8 +585,7 @@ async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
             let st = h.snapshot_state();
             let (last, _p99, loss) = h.stats.peek_quality();
             // Honest state only — a stale RTT sample is not a connection.
-            let desk = matches!(st.connection, ConnectionState::Connected)
-                || st.laptop_connected;
+            let desk = matches!(st.connection, ConnectionState::Connected) || st.laptop_connected;
             let label = match st.connection {
                 ConnectionState::Connected => "connected",
                 ConnectionState::Reconnecting => "reconnecting",
@@ -635,16 +641,14 @@ async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
             .as_ref()
             .map(|u| u.version.clone()),
         auto_update: *live.auto_update.read(),
+        password_set: live.password_set.load(Ordering::Relaxed),
     })
 }
 
 /// Release asset carrying the laptop Client package.
 const UPDATE_ASSET: &str = "BMW-ENET-Client-windows-x64.zip";
 
-fn check_update_blocking(
-    repo: &str,
-    token: &str,
-) -> Option<enet_core::updater::UpdateInfo> {
+fn check_update_blocking(repo: &str, token: &str) -> Option<enet_core::updater::UpdateInfo> {
     if !cfg!(windows) || repo.is_empty() {
         return None;
     }
@@ -658,10 +662,7 @@ fn check_update_blocking(
 }
 
 /// Download, swap binaries, restart. Only returns on failure.
-fn apply_update_blocking(
-    info: &enet_core::updater::UpdateInfo,
-    token: &str,
-) -> anyhow::Result<()> {
+fn apply_update_blocking(info: &enet_core::updater::UpdateInfo, token: &str) -> anyhow::Result<()> {
     let dir = enet_core::updater::install_dir()?;
     enet_core::updater::download_and_stage(info, &dir, token)?;
     enet_core::updater::restart_self()
@@ -697,11 +698,17 @@ async fn api_check_update(State(live): State<Arc<LiveStatus>>) -> Json<ConnectRe
 #[derive(Deserialize)]
 struct AgentSettingsUpdate {
     auto_update: Option<bool>,
+    pair_code: Option<String>,
+    password: Option<String>,
+    generate_pair_code: Option<bool>,
+    clear_password: Option<bool>,
 }
 
 async fn api_get_settings(State(live): State<Arc<LiveStatus>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "auto_update": *live.auto_update.read(),
+        "pair_code": live.pair_code.read().clone(),
+        "password_set": live.password_set.load(Ordering::Relaxed),
         "version": env!("CARGO_PKG_VERSION"),
         "update_available": live.update_available.read().as_ref().map(|u| u.version.clone()),
     }))
@@ -711,18 +718,94 @@ async fn api_set_settings(
     State(live): State<Arc<LiveStatus>>,
     Json(update): Json<AgentSettingsUpdate>,
 ) -> Json<ConnectResponse> {
+    let mut cfg = GatewayConfig::load(&live.config_path).unwrap_or_else(|_| {
+        let mut c = GatewayConfig::default();
+        c.role = Role::Agent;
+        c.auto_discover = true;
+        c
+    });
+    cfg.role = Role::Agent;
+    let mut reconnect = false;
+    let mut parts = Vec::new();
+
     if let Some(v) = update.auto_update {
+        cfg.auto_update = v;
         *live.auto_update.write() = v;
-        // Persist into agent.toml next to other settings.
-        if let Ok(mut cfg) = GatewayConfig::load(&live.config_path) {
-            cfg.auto_update = v;
-            let _ = cfg.save(&live.config_path);
+        parts.push(if v {
+            "auto-update on"
+        } else {
+            "auto-update off"
+        });
+    }
+    if update.generate_pair_code == Some(true) {
+        cfg.pair_code = generate_pair_code();
+        *live.pair_code.write() = cfg.pair_code.clone();
+        reconnect = true;
+        parts.push("new pair code");
+    } else if let Some(code) = update.pair_code {
+        let code = normalize_pair_code(&code);
+        if !code.is_empty() && code != cfg.pair_code {
+            cfg.pair_code = code;
+            *live.pair_code.write() = cfg.pair_code.clone();
+            reconnect = true;
+            parts.push("pair code updated");
         }
     }
+    if update.clear_password == Some(true) {
+        cfg.password.clear();
+        if !cfg.network_mode.is_remote() {
+            cfg.require_crypto = false;
+        }
+        live.password_set.store(false, Ordering::Relaxed);
+        reconnect = true;
+        parts.push("password cleared");
+    } else if let Some(p) = update.password {
+        cfg.password = p;
+        if !cfg.password.is_empty() {
+            cfg.require_crypto = true;
+        } else if !cfg.network_mode.is_remote() {
+            cfg.require_crypto = false;
+        }
+        live.password_set
+            .store(!cfg.password.is_empty(), Ordering::Relaxed);
+        reconnect = true;
+        parts.push(if cfg.password.is_empty() {
+            "password cleared"
+        } else {
+            "password updated"
+        });
+    }
+
+    if let Err(e) = cfg.save(&live.config_path) {
+        return Json(ConnectResponse {
+            ok: false,
+            message: format!("Could not save config: {e}"),
+            peer: None,
+        });
+    }
+
+    if reconnect {
+        if let Some(peer) = *live.configured_peer.read() {
+            refresh_client_autostart(&live.config_path, peer, &cfg.pair_code);
+        }
+        if let Some(h) = live.handle.write().take() {
+            h.stop();
+        }
+        live.force_discover.store(true, Ordering::SeqCst);
+        live.force_reconnect.store(true, Ordering::SeqCst);
+    }
+
+    let message = if parts.is_empty() {
+        "Settings saved".into()
+    } else if reconnect {
+        format!("{} — reconnecting to Host", parts.join(", "))
+    } else {
+        format!("Settings saved ({})", parts.join(", "))
+    };
     Json(ConnectResponse {
         ok: true,
-        message: "Settings saved".into(),
-        peer: None,
+        message,
+        peer: Some(cfg.pair_code),
     })
 }
 
@@ -747,7 +830,8 @@ async fn api_update(State(live): State<Arc<LiveStatus>>) -> Json<ConnectResponse
             }
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(800)).await;
-                let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&u, &token)).await;
+                let _ =
+                    tokio::task::spawn_blocking(move || apply_update_blocking(&u, &token)).await;
             });
             Json(ConnectResponse {
                 ok: true,
@@ -804,7 +888,12 @@ async fn api_connect(
     cfg.peer_addr = Some(peer);
     // Keep auto-discover ON so DHCP / IP changes still re-learn the Host.
     cfg.auto_discover = true;
-    if let Some(code) = req.pair_code.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    if let Some(code) = req
+        .pair_code
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         cfg.pair_code = code.to_string();
         *live.pair_code.write() = code.to_string();
     }
@@ -843,9 +932,7 @@ async fn api_connect(
     )
 }
 
-async fn api_discover(
-    State(live): State<Arc<LiveStatus>>,
-) -> (StatusCode, Json<ConnectResponse>) {
+async fn api_discover(State(live): State<Arc<LiveStatus>>) -> (StatusCode, Json<ConnectResponse>) {
     // Clear sticky peer so resolve_peer must hear a fresh Host beacon.
     *live.configured_peer.write() = None;
     live.force_discover.store(true, Ordering::SeqCst);
@@ -884,7 +971,10 @@ fn spawn_status_server(live: Arc<LiveStatus>, port: u16) {
             .route("/api/discover", post(api_discover))
             .route("/api/update", post(api_update))
             .route("/api/check-update", post(api_check_update))
-            .route("/api/settings", get(api_get_settings).post(api_set_settings))
+            .route(
+                "/api/settings",
+                get(api_get_settings).post(api_set_settings),
+            )
             .with_state(live);
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         // Retry the bind — after an update restart the old process may hold
@@ -1023,13 +1113,11 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let status_port = args
-        .status_port
-        .unwrap_or(if cfg.api_port == 47901 {
-            DEFAULT_AGENT_API_PORT
-        } else {
-            cfg.api_port
-        });
+    let status_port = args.status_port.unwrap_or(if cfg.api_port == 47901 {
+        DEFAULT_AGENT_API_PORT
+    } else {
+        cfg.api_port
+    });
 
     let enet_name = Arc::new(RwLock::new(String::new()));
     let enet_link = Arc::new(AtomicBool::new(false));
@@ -1056,6 +1144,7 @@ async fn main() -> anyhow::Result<()> {
         update_repo: cfg.update_repo.clone(),
         update_token: cfg.update_token.clone(),
         auto_update: RwLock::new(cfg.auto_update),
+        password_set: AtomicBool::new(!cfg.password.is_empty()),
     });
     spawn_status_server(live.clone(), status_port);
     spawn_enet_link_refresher(enet_name.clone(), enet_link.clone());
@@ -1081,8 +1170,12 @@ async fn main() -> anyhow::Result<()> {
             if cfg.auto_update {
                 eprintln!("  Update found: v{} — installing…", update.version);
                 let token = cfg.update_token.clone();
-                let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token)).await;
-                eprintln!("  Update failed — continuing with v{}.", env!("CARGO_PKG_VERSION"));
+                let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token))
+                    .await;
+                eprintln!(
+                    "  Update failed — continuing with v{}.",
+                    env!("CARGO_PKG_VERSION")
+                );
             } else {
                 eprintln!(
                     "  Update available: v{} (auto-update off — use Settings → Check for updates)",
@@ -1107,9 +1200,10 @@ async fn main() -> anyhow::Result<()> {
                 tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
                 let repo = live_upd.update_repo.clone();
                 let token = live_upd.update_token.clone();
-                let found = tokio::task::spawn_blocking(move || check_update_blocking(&repo, &token))
-                    .await
-                    .unwrap_or(None);
+                let found =
+                    tokio::task::spawn_blocking(move || check_update_blocking(&repo, &token))
+                        .await
+                        .unwrap_or(None);
                 let Some(update) = found else { continue };
                 info!(version = %update.version, "update available");
                 *live_upd.update_available.write() = Some(update.clone());
@@ -1117,12 +1211,7 @@ async fn main() -> anyhow::Result<()> {
                     .handle
                     .read()
                     .as_ref()
-                    .map(|h| {
-                        matches!(
-                            h.snapshot_state().connection,
-                            ConnectionState::Connected
-                        )
-                    })
+                    .map(|h| matches!(h.snapshot_state().connection, ConnectionState::Connected))
                     .unwrap_or(false);
                 let auto = *live_upd.auto_update.read();
                 if auto && !connected {
@@ -1131,7 +1220,9 @@ async fn main() -> anyhow::Result<()> {
                         h.stop();
                     }
                     let token = live_upd.update_token.clone();
-                    let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token)).await;
+                    let _ =
+                        tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token))
+                            .await;
                     eprintln!("  Update install failed");
                 }
             }
@@ -1172,6 +1263,14 @@ async fn main() -> anyhow::Result<()> {
                 cfg.pair_code = code;
             }
         }
+        // Settings page can change password/crypto without restarting the process.
+        if let Ok(disk) = GatewayConfig::load(&live.config_path) {
+            cfg.password = disk.password;
+            cfg.require_crypto = disk.require_crypto;
+            cfg.auto_update = disk.auto_update;
+        }
+        live.password_set
+            .store(!cfg.password.is_empty(), Ordering::Relaxed);
         let force_discover = live.force_discover.swap(false, Ordering::SeqCst);
         live.force_reconnect.store(false, Ordering::SeqCst);
         *live.pair_code.write() = cfg.pair_code.clone();
@@ -1189,11 +1288,10 @@ async fn main() -> anyhow::Result<()> {
             Err(e) => {
                 eprintln!("\n{e}\n");
                 attempt = attempt.saturating_add(1);
-                sleep_or_reconnect(&live, backoff_delay(
-                    cfg.reconnect_delay_ms,
-                    cfg.reconnect_delay_max_ms,
-                    attempt,
-                ))
+                sleep_or_reconnect(
+                    &live,
+                    backoff_delay(cfg.reconnect_delay_ms, cfg.reconnect_delay_max_ms, attempt),
+                )
                 .await;
                 continue;
             }

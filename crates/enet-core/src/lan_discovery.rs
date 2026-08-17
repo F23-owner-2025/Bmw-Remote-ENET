@@ -4,11 +4,16 @@
 //! finds the Host by pair code and re-discovers when the address changes.
 
 use enet_protocol::magic::DEFAULT_DISCOVERY_PORT;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tracing::{debug, info, warn};
+
+/// Live pair code + whether a password is required (updated from Settings).
+pub type BeaconPairing = Arc<RwLock<(String, bool)>>;
 
 /// Discovery beacon / query magic.
 pub const DISCOVERY_MAGIC: &str = "BMWENET1";
@@ -58,6 +63,15 @@ impl DiscoveryMessage {
         }
         Ok(serde_json::from_slice(&data[magic.len()..])?)
     }
+}
+
+/// Normalize a user-entered pair code (`bmw-7k2q` → `BMW-7K2Q`).
+pub fn normalize_pair_code(raw: &str) -> String {
+    raw.trim()
+        .to_uppercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
 }
 
 /// Generate a short human-friendly pair code (e.g. `BMW-7K2Q`).
@@ -228,11 +242,7 @@ pub fn pick_reachable_host_ip(src: IpAddr, advertised: &[IpAddr], local: &[Ipv4A
             }
         }
     }
-    candidates
-        .first()
-        .copied()
-        .map(IpAddr::V4)
-        .unwrap_or(src)
+    candidates.first().copied().map(IpAddr::V4).unwrap_or(src)
 }
 
 /// Broadcast a discovery query and wait for announces.
@@ -275,7 +285,10 @@ pub async fn discover_gateways(
             let dest = SocketAddr::from((bcast, discovery_port));
             let _ = s.send_to(&payload, dest).await;
             let _ = s
-                .send_to(&payload, SocketAddr::from((Ipv4Addr::BROADCAST, discovery_port)))
+                .send_to(
+                    &payload,
+                    SocketAddr::from((Ipv4Addr::BROADCAST, discovery_port)),
+                )
                 .await;
         }
     }
@@ -327,10 +340,8 @@ pub async fn discover_gateways(
                             );
                             continue;
                         }
-                        let advertised: Vec<IpAddr> = lan_ips
-                            .iter()
-                            .filter_map(|s| s.parse().ok())
-                            .collect();
+                        let advertised: Vec<IpAddr> =
+                            lan_ips.iter().filter_map(|s| s.parse().ok()).collect();
                         let addr = pick_reachable_host_ip(src.ip(), &advertised, &local_ips);
                         if found.iter().any(|g: &DiscoveredGateway| g.addr == addr) {
                             continue;
@@ -385,17 +396,21 @@ async fn send_announce_everywhere(payload: &[u8], discovery_port: u16) {
 }
 
 /// Run gateway discovery responder / beacon loop until cancelled.
+///
+/// `pairing` is `(pair_code, password_required)` and can be updated live from Settings.
 pub async fn run_gateway_beacon(
     discovery_port: u16,
     tunnel_port: u16,
     api_port: u16,
-    pair_code: String,
-    password_required: bool,
+    pairing: BeaconPairing,
     version: String,
 ) -> anyhow::Result<()> {
     let sock = UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, discovery_port))).await?;
     sock.set_broadcast(true)?;
-    info!(port = discovery_port, %pair_code, "discovery beacon listening");
+    {
+        let (pair_code, _) = pairing.read().clone();
+        info!(port = discovery_port, %pair_code, "discovery beacon listening");
+    }
 
     let hostname = hostname::get()
         .ok()
@@ -407,13 +422,14 @@ pub async fn run_gateway_beacon(
     loop {
         tokio::select! {
             _ = interval.tick() => {
+                let (pair_code, password_required) = pairing.read().clone();
                 let lan_ips: Vec<String> = list_lan_ipv4s().into_iter().map(|ip| ip.to_string()).collect();
                 let announce = DiscoveryMessage::Announce {
                     hostname: hostname.clone(),
                     version: version.clone(),
                     tunnel_port,
                     api_port,
-                    pair_code: pair_code.clone(),
+                    pair_code,
                     password_required,
                     lan_ips,
                 };
@@ -424,6 +440,7 @@ pub async fn run_gateway_beacon(
             res = sock.recv_from(&mut buf) => {
                 if let Ok((n, src)) = res {
                     if let Ok(DiscoveryMessage::Query { pair_code: want }) = DiscoveryMessage::decode(&buf[..n]) {
+                        let (pair_code, password_required) = pairing.read().clone();
                         if !want.is_empty() && !pair_code.is_empty() && !want.eq_ignore_ascii_case(&pair_code) {
                             continue;
                         }
@@ -433,7 +450,7 @@ pub async fn run_gateway_beacon(
                             version: version.clone(),
                             tunnel_port,
                             api_port,
-                            pair_code: pair_code.clone(),
+                            pair_code,
                             password_required,
                             lan_ips,
                         };
@@ -456,6 +473,8 @@ pub fn default_discovery_port() -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parking_lot::RwLock;
+    use std::sync::Arc;
 
     #[test]
     fn roundtrip_message() {
@@ -493,6 +512,12 @@ mod tests {
     }
 
     #[test]
+    fn normalize_pair_code_uppercases() {
+        assert_eq!(normalize_pair_code("  bmw-7k2q "), "BMW-7K2Q");
+        assert_eq!(normalize_pair_code("bmw 7k2q"), "BMW7K2Q");
+    }
+
+    #[test]
     fn pick_same_subnet_ip() {
         let local = vec![Ipv4Addr::new(192, 168, 1, 50)];
         let advertised = [
@@ -508,12 +533,12 @@ mod tests {
     async fn discover_local_beacon() {
         let code = "BMW-TEST".to_string();
         let port = 47992u16;
+        let pairing = Arc::new(RwLock::new((code.clone(), false)));
         let beacon = tokio::spawn(run_gateway_beacon(
             port,
             47900,
             47901,
-            code.clone(),
-            false,
+            pairing,
             "test".into(),
         ));
         tokio::time::sleep(Duration::from_millis(50)).await;

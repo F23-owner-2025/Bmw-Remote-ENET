@@ -9,9 +9,9 @@ use clap::Parser;
 use enet_core::config::{GatewayConfig, NetworkMode, Role};
 use enet_core::health::HealthMonitor;
 use enet_core::logging::init_logging;
-use enet_core::run_gateway_beacon;
 use enet_core::safety::{FlashSafetyChecker, SafetyThresholds};
 use enet_core::state::{ConnectionState, GatewayState};
+use enet_core::{generate_pair_code, normalize_pair_code, run_gateway_beacon, BeaconPairing};
 use enet_tunnel::{
     EthernetPort, RelayTunnelEngine, RelayTunnelOptions, SimulatedEthernet, TunnelEngine,
     TunnelHandle, TunnelOptions,
@@ -76,7 +76,10 @@ fn build_host_ethernet(cfg: &GatewayConfig, simulate: bool) -> HostEthernet {
                 eprintln!();
                 eprintln!("  *** ISTA will NOT see the car yet ***");
                 eprintln!("  Install Npcap: https://npcap.com  (enable WinPcap API compatibility)");
-                eprintln!("  Re-run BMW-ENET-Setup (Host) to create BMW-ENET at {}", cfg.tester_ip);
+                eprintln!(
+                    "  Re-run BMW-ENET-Setup (Host) to create BMW-ENET at {}",
+                    cfg.tester_ip
+                );
                 eprintln!("  Tunnel stays up for connection testing; L2/ISTA path is inactive.");
                 eprintln!();
                 warn!("Npcap missing — Host L2 disabled");
@@ -214,10 +217,7 @@ fn check_update_blocking(cfg: &GatewayConfig) -> Option<enet_core::updater::Upda
 }
 
 /// Download, swap binaries, restart. Only returns on failure.
-fn apply_update_blocking(
-    info: &enet_core::updater::UpdateInfo,
-    token: &str,
-) -> anyhow::Result<()> {
+fn apply_update_blocking(info: &enet_core::updater::UpdateInfo, token: &str) -> anyhow::Result<()> {
     let dir = enet_core::updater::install_dir()?;
     enet_core::updater::download_and_stage(info, &dir, token)?;
     enet_core::updater::restart_self()
@@ -235,6 +235,8 @@ struct AppState {
     tunnel_tx: tokio::sync::mpsc::UnboundedSender<TunnelCmd>,
     /// Newer release found by the periodic check.
     update_available: Arc<RwLock<Option<enet_core::updater::UpdateInfo>>>,
+    /// Live discovery beacon pairing: `(pair_code, password_required)`.
+    pairing: BeaconPairing,
 }
 
 #[derive(Clone, Serialize)]
@@ -305,6 +307,8 @@ struct StatusResponse {
     update_available: Option<String>,
     /// Whether new releases auto-install when idle.
     auto_update: bool,
+    /// True when a tunnel password is configured (value is never sent to the UI).
+    password_set: bool,
 }
 
 #[derive(Deserialize)]
@@ -320,6 +324,10 @@ struct SettingsUpdate {
     setup_complete: Option<bool>,
     auto_discover: Option<bool>,
     auto_update: Option<bool>,
+    /// When true, replace the pair code with a freshly generated one.
+    generate_pair_code: Option<bool>,
+    /// When true, clear the tunnel password (no encryption).
+    clear_password: Option<bool>,
 }
 
 #[tokio::main]
@@ -390,8 +398,12 @@ async fn main() -> anyhow::Result<()> {
             if cfg.auto_update {
                 eprintln!("  Update found: v{} — installing…", update.version);
                 let token = cfg.update_token.clone();
-                let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token)).await;
-                eprintln!("  Update failed — continuing with v{}.", env!("CARGO_PKG_VERSION"));
+                let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token))
+                    .await;
+                eprintln!(
+                    "  Update failed — continuing with v{}.",
+                    env!("CARGO_PKG_VERSION")
+                );
             } else {
                 eprintln!(
                     "  Update available: v{} (auto-update off — use Settings → Check for updates)",
@@ -418,7 +430,10 @@ async fn main() -> anyhow::Result<()> {
                     break;
                 }
                 Err(e) if attempt < 4 => {
-                    warn!(error = format!("{e:#}"), attempt, "tunnel start failed — retrying in 2s");
+                    warn!(
+                        error = format!("{e:#}"),
+                        attempt, "tunnel start failed — retrying in 2s"
+                    );
                     eprintln!("  Tunnel start failed: {e:#}");
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
@@ -428,20 +443,22 @@ async fn main() -> anyhow::Result<()> {
         result.expect("tunnel start loop")
     };
 
-    // LAN beacon only for same-network mode.
+    // LAN beacon only for same-network mode. Pairing can be updated from Settings.
+    let pairing: BeaconPairing = Arc::new(RwLock::new((
+        pair_code.clone(),
+        !cfg.password.is_empty() || cfg.require_crypto,
+    )));
     let beacon = if cfg.network_mode == NetworkMode::Lan {
         let discovery_port = cfg.discovery_port;
         let tunnel_port = cfg.tunnel_port;
         let api_port = cfg.api_port;
-        let pair_code = pair_code.clone();
-        let password_required = !cfg.password.is_empty() || cfg.require_crypto;
+        let pairing = pairing.clone();
         Some(tokio::spawn(async move {
             if let Err(e) = run_gateway_beacon(
                 discovery_port,
                 tunnel_port,
                 api_port,
-                pair_code,
-                password_required,
+                pairing,
                 env!("CARGO_PKG_VERSION").into(),
             )
             .await
@@ -463,12 +480,16 @@ async fn main() -> anyhow::Result<()> {
         l2: Arc::new(RwLock::new((l2_active, l2_label.clone()))),
         tunnel_tx,
         update_available: Arc::new(RwLock::new(None)),
+        pairing,
     };
 
     {
         let mut log = app_state.activity.write();
         log.push("info", format!("Gateway started · pair {}", pair_code));
-        log.push("info", format!("Network mode: {}", cfg.network_mode.label()));
+        log.push(
+            "info",
+            format!("Network mode: {}", cfg.network_mode.label()),
+        );
         if l2_active {
             log.push("info", format!("ISTA bridge ready · {l2_label}"));
         } else {
@@ -512,11 +533,14 @@ async fn main() -> anyhow::Result<()> {
                     .map(|h| h.snapshot_state().laptop_connected)
                     .unwrap_or(false);
                 if cfg_now.auto_update && !connected {
-                    st.activity
-                        .write()
-                        .push("info", format!("Auto-installing v{} — restarting…", update.version));
+                    st.activity.write().push(
+                        "info",
+                        format!("Auto-installing v{} — restarting…", update.version),
+                    );
                     let token = cfg_now.update_token.clone();
-                    let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token)).await;
+                    let _ =
+                        tokio::task::spawn_blocking(move || apply_update_blocking(&update, &token))
+                            .await;
                     st.activity.write().push("error", "Update install failed");
                 }
             }
@@ -526,7 +550,6 @@ async fn main() -> anyhow::Result<()> {
     // Tunnel lifecycle supervisor — lets the dashboard Stop / Start / Restart in-process.
     {
         let sup = app_state.clone();
-        let sup_pair = pair_code.clone();
         let simulate = args.simulate;
         tokio::spawn(async move {
             while let Some(cmd) = tunnel_rx.recv().await {
@@ -540,12 +563,13 @@ async fn main() -> anyhow::Result<()> {
                 // Give the old socket a moment to release the port.
                 tokio::time::sleep(Duration::from_millis(400)).await;
                 let cfg_now = sup.cfg.read().clone();
-                match start_tunnel(&cfg_now, &sup_pair, simulate).await {
+                let pair = cfg_now.pair_code.clone();
+                match start_tunnel(&cfg_now, &pair, simulate).await {
                     Ok((h, l2a, l2l)) => {
                         *sup.handle.write() = Some(h);
                         *sup.l2.write() = (l2a, l2l.clone());
                         let mut log = sup.activity.write();
-                        log.push("info", "Tunnel restarted");
+                        log.push("info", format!("Tunnel restarted · pair {pair}"));
                         if l2a {
                             log.push("info", format!("ISTA bridge ready · {l2l}"));
                         } else {
@@ -580,10 +604,7 @@ async fn main() -> anyhow::Result<()> {
                 let Some(st) = snap else { continue };
                 let mut log = watch_state.activity.write();
                 if st.connection != prev_conn {
-                    log.push(
-                        "info",
-                        format!("Tunnel state → {:?}", st.connection),
-                    );
+                    log.push("info", format!("Tunnel state → {:?}", st.connection));
                     prev_conn = st.connection;
                 }
                 let peer = st.peer_endpoint.clone().unwrap_or_default();
@@ -604,11 +625,7 @@ async fn main() -> anyhow::Result<()> {
                     prev_peer = peer;
                 }
                 if st.vehicle.link_up && !prev_link {
-                    let extra = st
-                        .vehicle
-                        .discovered_ip
-                        .as_deref()
-                        .unwrap_or("link up");
+                    let extra = st.vehicle.discovered_ip.as_deref().unwrap_or("link up");
                     log.push("info", format!("Vehicle ENET · {extra}"));
                 } else if !st.vehicle.link_up && prev_link {
                     log.push("warn", "Vehicle ENET link down");
@@ -632,7 +649,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/start", post(api_start))
         .route("/api/stop", post(api_stop))
         .route("/api/restart", post(api_restart))
-        .route("/api/settings", get(api_get_settings).post(api_set_settings))
+        .route(
+            "/api/settings",
+            get(api_get_settings).post(api_set_settings),
+        )
         .route("/api/safety", get(api_safety))
         .route("/api/export-logs", post(api_export_logs))
         .route("/api/complete-setup", post(api_complete_setup))
@@ -784,9 +804,9 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
             " Remote link: prefer WireGuard or same-LAN for ECU flashing whenever possible.",
         );
     } else if cfg.network_mode.is_remote() {
-        flash_safety.warning.push_str(
-            " You are on a remote path (relay/VPN). Expect higher latency than LAN.",
-        );
+        flash_safety
+            .warning
+            .push_str(" You are on a remote path (relay/VPN). Expect higher latency than LAN.");
     }
     let lan_ips = local_lan_ipv4s();
     let primary_ip = lan_ips
@@ -800,8 +820,7 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
         && !matches!(gateway_state.connection, ConnectionState::Connected)
     {
         setup_hints.push(
-            "Laptop Client auto-detects this PC by pair code (DHCP / changing IPs OK)."
-                .into(),
+            "Laptop Client auto-detects this PC by pair code (DHCP / changing IPs OK).".into(),
         );
         if lan_ips.len() > 1 {
             setup_hints.push(format!(
@@ -854,15 +873,13 @@ async fn api_status(State(state): State<AppState>) -> Json<StatusResponse> {
             .as_ref()
             .map(|u| u.version.clone()),
         auto_update: cfg.auto_update,
+        password_set: !cfg.password.is_empty(),
     })
 }
 
 async fn api_check_update(State(state): State<AppState>) -> Json<serde_json::Value> {
     let cfg_now = state.cfg.read().clone();
-    state
-        .activity
-        .write()
-        .push("info", "Checking for updates…");
+    state.activity.write().push("info", "Checking for updates…");
     let cfg_chk = cfg_now.clone();
     let found = tokio::task::spawn_blocking(move || check_update_blocking(&cfg_chk))
         .await
@@ -921,7 +938,8 @@ async fn api_update(State(state): State<AppState>) -> Json<serde_json::Value> {
             tokio::spawn(async move {
                 // Let the HTTP response flush before the process restarts.
                 tokio::time::sleep(Duration::from_millis(800)).await;
-                let _ = tokio::task::spawn_blocking(move || apply_update_blocking(&u, &token)).await;
+                let _ =
+                    tokio::task::spawn_blocking(move || apply_update_blocking(&u, &token)).await;
             });
             Json(serde_json::json!({
                 "ok": true,
@@ -964,8 +982,16 @@ async fn api_restart(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({"ok": true, "message": "Restarting tunnel…"}))
 }
 
-async fn api_get_settings(State(state): State<AppState>) -> Json<GatewayConfig> {
-    Json(state.cfg.read().clone())
+async fn api_get_settings(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let cfg = state.cfg.read().clone();
+    let mut v = serde_json::to_value(&cfg).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(obj) = v.as_object_mut() {
+        let set = !cfg.password.is_empty();
+        obj.insert("password".into(), serde_json::json!(""));
+        obj.insert("password_set".into(), serde_json::json!(set));
+        obj.insert("update_token".into(), serde_json::json!(""));
+    }
+    Json(v)
 }
 
 async fn api_set_settings(
@@ -973,11 +999,24 @@ async fn api_set_settings(
     Json(update): Json<SettingsUpdate>,
 ) -> Json<serde_json::Value> {
     let mut cfg = state.cfg.write();
+    let mut pairing_changed = false;
     if let Some(p) = update.tunnel_port {
         cfg.tunnel_port = p;
     }
-    if let Some(p) = update.password {
+    if update.clear_password == Some(true) {
+        cfg.password.clear();
+        if !cfg.network_mode.is_remote() {
+            cfg.require_crypto = false;
+        }
+        pairing_changed = true;
+    } else if let Some(p) = update.password {
         cfg.password = p;
+        if !cfg.password.is_empty() {
+            cfg.require_crypto = true;
+        } else if !cfg.network_mode.is_remote() {
+            cfg.require_crypto = false;
+        }
+        pairing_changed = true;
     }
     if let Some(ms) = update.reconnect_delay_ms {
         cfg.reconnect_delay_ms = ms;
@@ -987,12 +1026,20 @@ async fn api_set_settings(
     }
     if let Some(v) = update.require_crypto {
         cfg.require_crypto = v;
+        pairing_changed = true;
     }
     if let Some(v) = update.auto_start {
         cfg.auto_start = v;
     }
-    if let Some(v) = update.pair_code {
-        cfg.pair_code = v;
+    if update.generate_pair_code == Some(true) {
+        cfg.pair_code = generate_pair_code();
+        pairing_changed = true;
+    } else if let Some(v) = update.pair_code {
+        let code = normalize_pair_code(&v);
+        if !code.is_empty() && code != cfg.pair_code {
+            cfg.pair_code = code;
+            pairing_changed = true;
+        }
     }
     if let Some(v) = update.setup_complete {
         cfg.setup_complete = v;
@@ -1013,12 +1060,27 @@ async fn api_set_settings(
         };
     }
     let _ = cfg.save(&state.config_path);
+    *state.pairing.write() = (
+        cfg.pair_code.clone(),
+        !cfg.password.is_empty() || cfg.require_crypto,
+    );
+    let pair = cfg.pair_code.clone();
+    let password_set = !cfg.password.is_empty();
     drop(cfg);
-    state
-        .activity
-        .write()
-        .push("info", "Settings saved — Restart tunnel to apply");
-    Json(serde_json::json!({"ok": true, "message": "Saved — click Restart tunnel to apply"}))
+    let mut message = "Settings saved".to_string();
+    if pairing_changed {
+        let _ = state.tunnel_tx.send(TunnelCmd::Restart);
+        message = format!("Saved pair {pair} — restarting tunnel so both PCs can reconnect");
+        state.activity.write().push("info", message.clone());
+    } else {
+        state.activity.write().push("info", "Settings saved");
+    }
+    Json(serde_json::json!({
+        "ok": true,
+        "message": message,
+        "pair_code": pair,
+        "password_set": password_set
+    }))
 }
 
 async fn api_complete_setup(State(state): State<AppState>) -> Json<serde_json::Value> {

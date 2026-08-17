@@ -36,6 +36,8 @@ struct StatusResponse {
     update_available: Option<String>,
     #[serde(default = "default_auto_update")]
     auto_update: bool,
+    #[serde(default)]
+    password_set: bool,
 }
 
 fn default_auto_update() -> bool {
@@ -62,6 +64,7 @@ struct GatewayApp {
     settings_open: bool,
     help_open: bool,
     password: String,
+    pair_code: String,
     tunnel_port: String,
     auto_update: bool,
     update_check_msg: String,
@@ -83,6 +86,7 @@ impl GatewayApp {
             settings_open: false,
             help_open: true,
             password: String::new(),
+            pair_code: String::new(),
             tunnel_port: "47900".into(),
             auto_update: true,
             update_check_msg: String::new(),
@@ -96,8 +100,11 @@ impl GatewayApp {
     }
 
     fn push_log(&mut self, msg: impl Into<String>) {
-        self.log_lines
-            .push(format!("{}  {}", Local::now().format("%H:%M:%S"), msg.into()));
+        self.log_lines.push(format!(
+            "{}  {}",
+            Local::now().format("%H:%M:%S"),
+            msg.into()
+        ));
         if self.log_lines.len() > 500 {
             self.log_lines.drain(0..self.log_lines.len() - 500);
         }
@@ -111,6 +118,9 @@ impl GatewayApp {
                         self.help_open = true;
                     }
                     self.auto_update = s.auto_update;
+                    if self.pair_code.is_empty() && !s.pair_code.is_empty() {
+                        self.pair_code = s.pair_code.clone();
+                    }
                     self.status = s;
                     self.error = None;
                 }
@@ -133,10 +143,7 @@ impl GatewayApp {
             .timeout(Duration::from_secs(25))
             .build()
             .unwrap_or_else(|_| self.client.clone());
-        match slow
-            .post(format!("{}/api/check-update", self.api))
-            .send()
-        {
+        match slow.post(format!("{}/api/check-update", self.api)).send() {
             Ok(resp) => match resp.json::<CheckUpdateResponse>() {
                 Ok(r) => {
                     self.update_check_msg = r.message.clone();
@@ -182,10 +189,7 @@ impl eframe::App for GatewayApp {
                     self.push_log(format!("Update available: v{v} — open Settings to install"));
                     self.update_check_msg = format!("Update available: v{v}");
                 } else {
-                    self.push_log(format!(
-                        "Up to date (v{})",
-                        self.status.state.version
-                    ));
+                    self.push_log(format!("Up to date (v{})", self.status.state.version));
                 }
             }
         }
@@ -255,7 +259,9 @@ impl eframe::App for GatewayApp {
                         .args(["/C", "start", &self.api])
                         .spawn();
                     #[cfg(target_os = "linux")]
-                    let _ = std::process::Command::new("xdg-open").arg(&self.api).spawn();
+                    let _ = std::process::Command::new("xdg-open")
+                        .arg(&self.api)
+                        .spawn();
                     #[cfg(target_os = "macos")]
                     let _ = std::process::Command::new("open").arg(&self.api).spawn();
                 }
@@ -396,11 +402,22 @@ impl eframe::App for GatewayApp {
                 .resizable(true)
                 .default_width(420.0)
                 .show(ctx, |ui| {
+                    ui.heading("Pairing");
+                    ui.label("Pair code (same on laptop Client)");
+                    ui.text_edit_singleline(&mut self.pair_code);
+                    ui.label(if self.status.password_set {
+                        "Password is set. Leave blank to keep it."
+                    } else {
+                        "Optional password (same on laptop)"
+                    });
+                    ui.text_edit_singleline(&mut self.password);
+
+                    ui.add_space(12.0);
                     ui.heading("Tunnel");
+
+                    ui.add_space(12.0);
                     ui.label("Tunnel port");
                     ui.text_edit_singleline(&mut self.tunnel_port);
-                    ui.label("Optional password (same on laptop)");
-                    ui.text_edit_singleline(&mut self.password);
 
                     ui.add_space(12.0);
                     ui.heading("Updates");
@@ -412,7 +429,10 @@ impl eframe::App for GatewayApp {
                             self.status.state.version.clone()
                         }
                     ));
-                    ui.checkbox(&mut self.auto_update, "Automatically install updates when idle");
+                    ui.checkbox(
+                        &mut self.auto_update,
+                        "Automatically install updates when idle",
+                    );
                     if !self.update_check_msg.is_empty() {
                         ui.label(
                             egui::RichText::new(&self.update_check_msg)
@@ -441,11 +461,21 @@ impl eframe::App for GatewayApp {
                     ui.horizontal(|ui| {
                         if ui.button("Save").clicked() {
                             let port: u16 = self.tunnel_port.parse().unwrap_or(47900);
-                            let body = serde_json::json!({
+                            let mut body = serde_json::json!({
                                 "tunnel_port": port,
-                                "password": self.password,
                                 "auto_update": self.auto_update,
                             });
+                            if let Some(obj) = body.as_object_mut() {
+                                if !self.pair_code.trim().is_empty() {
+                                    obj.insert(
+                                        "pair_code".into(),
+                                        serde_json::json!(self.pair_code.trim()),
+                                    );
+                                }
+                                if !self.password.is_empty() {
+                                    obj.insert("password".into(), serde_json::json!(self.password));
+                                }
+                            }
                             let _ = self
                                 .client
                                 .post(format!("{}/api/settings", self.api))

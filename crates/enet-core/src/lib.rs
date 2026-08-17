@@ -20,8 +20,8 @@ pub use discovery::{
 };
 pub use health::HealthMonitor;
 pub use lan_discovery::{
-    DiscoveredGateway, DiscoveryMessage, discover_gateways, generate_pair_code, list_lan_ipv4s,
-    pick_reachable_host_ip, run_gateway_beacon,
+    BeaconPairing, DiscoveredGateway, DiscoveryMessage, discover_gateways, generate_pair_code,
+    list_lan_ipv4s, normalize_pair_code, pick_reachable_host_ip, run_gateway_beacon,
 };
 pub use logging::init_logging;
 pub use npcap::{ensure_npcap_installed, npcap_installed, NPCAP_INSTALLER_URL};
