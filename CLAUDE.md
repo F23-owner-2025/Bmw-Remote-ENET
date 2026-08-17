@@ -1,8 +1,7 @@
 # BMW ENET Gateway — Claude Code brief
 
-Active branch: `cursor/remote-enet-gateway-0b54`  
-PR: #3  
-Latest tag: **v0.1.28** (Setup wizard sticky footer — buttons always visible)
+Public GitHub repo: `https://github.com/F23-owner-2025/Bmw-Remote-ENET`  
+Latest tag: **v0.2.3** (tested 0b54 line published to main)
 
 ## What this project is
 
@@ -29,7 +28,7 @@ Ports: tunnel UDP **47900**, Host API **47901**, discovery **47902**, Client sta
 | Client status page Connect / Auto-find | Working (v0.1.16+) |
 | PowerShell flicker from link polling | Fixed (v0.1.15) |
 | Real L2 to ISTA (Npcap + BMW-ENET) | **Implemented in v0.1.18 — needs user install of Npcap on both PCs** |
-| Making repo public | User will flip GitHub visibility when ready |
+| Making repo public | Done (`F23-owner-2025/Bmw-Remote-ENET`) |
 
 ## Why ISTA did not see the car before v0.1.18
 
@@ -37,7 +36,7 @@ Ports: tunnel UDP **47900**, Host API **47901**, discovery **47902**, Client sta
 
 ## What the user must do next (ISTA)
 
-1. Wait for GitHub Release **v0.1.18** `BMW-ENET-Setup.exe` (Windows CI builds on tag push).
+1. Install GitHub Release **v0.2.3** `BMW-ENET-Setup.exe` (Windows CI builds on tag push).
 2. Install **Npcap** on desktop **and** laptop: https://npcap.com — enable **WinPcap API-compatible Mode**.
 3. Re-run Setup → Host (desktop) and Client (laptop).
 4. In ISTA select interface **BMW-ENET** (not Wi‑Fi/LAN).
@@ -69,6 +68,5 @@ cargo check -p enet-agent -p enet-gateway -p enet-tunnel -p enet-core
 
 ## User goals still open
 
-- Finish ISTA end-to-end validation after Npcap + v0.1.18 install.
-- Make GitHub repo **public** when finished (Settings → Change visibility).
+- Finish ISTA end-to-end validation after Npcap + v0.2.3 install.
 - Prefer no manual PowerShell; auto-detect IPs (done in v0.1.17).
