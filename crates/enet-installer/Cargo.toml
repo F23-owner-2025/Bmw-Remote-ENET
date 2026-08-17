@@ -30,5 +30,8 @@ hex = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
 [dev-dependencies]
 tempfile = { workspace = true }
