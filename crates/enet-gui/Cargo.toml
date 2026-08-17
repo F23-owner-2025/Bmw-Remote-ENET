@@ -3,7 +3,7 @@ name = "enet-gui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "BMW ENET Gateway desktop GUI"
+description = "BMW ENET Host and Client desktop GUI"
 
 [[bin]]
 name = "enet-gui"

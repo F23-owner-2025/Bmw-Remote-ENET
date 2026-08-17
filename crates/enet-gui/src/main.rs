@@ -1,4 +1,6 @@
-//! BMW ENET Gateway GUI — friendly status + first-run guidance.
+//! BMW ENET Host / Client GUI — friendly status + first-run guidance.
+
+mod client;
 
 use chrono::Local;
 use clap::Parser;
@@ -12,8 +14,30 @@ use std::time::{Duration, Instant};
 #[derive(Parser, Debug)]
 #[command(name = "enet-gui")]
 struct Args {
-    #[arg(long, default_value = "http://127.0.0.1:47901")]
-    api: String,
+    /// Status API (Host :47901 or Client :47903). Inferred from the install folder when omitted.
+    #[arg(long)]
+    api: Option<String>,
+    /// Force Host or Client layout (`host` / `client`).
+    #[arg(long)]
+    role: Option<String>,
+}
+
+fn infer_default_api() -> String {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let agent = dir.join("enet-agent.exe").is_file();
+            let gw = dir.join("enet-gateway.exe").is_file();
+            if agent && !gw {
+                return "http://127.0.0.1:47903".into();
+            }
+        }
+    }
+    "http://127.0.0.1:47901".into()
+}
+
+fn is_client_mode(role: Option<&str>, api: &str) -> bool {
+    matches!(role, Some(r) if r.eq_ignore_ascii_case("client") || r.eq_ignore_ascii_case("agent"))
+        || api.contains(":47903")
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -128,7 +152,8 @@ impl GatewayApp {
             },
             Err(_) => {
                 self.error = Some(
-                    "Gateway not reachable. Start it with the desktop installer, or run enet-gateway."
+                    "Could not reach the Host service (http://127.0.0.1:47901). \
+                     Re-run Setup so leftover Host/Client processes are stopped, then start Host again."
                         .into(),
                 );
                 self.help_open = true;
@@ -254,16 +279,9 @@ impl eframe::App for GatewayApp {
                 }
                 if ui.button("Open in browser").clicked() {
                     self.push_log(format!("Open {} in your browser", self.api));
-                    #[cfg(target_os = "windows")]
-                    let _ = std::process::Command::new("cmd")
-                        .args(["/C", "start", &self.api])
-                        .spawn();
-                    #[cfg(target_os = "linux")]
-                    let _ = std::process::Command::new("xdg-open")
-                        .arg(&self.api)
-                        .spawn();
-                    #[cfg(target_os = "macos")]
-                    let _ = std::process::Command::new("open").arg(&self.api).spawn();
+                    if let Err(e) = enet_core::open_http_url(&self.api) {
+                        self.push_log(format!("Could not open browser: {e}"));
+                    }
                 }
                 if ui.button("Export Logs").clicked() {
                     self.post("/api/export-logs");
@@ -507,6 +525,20 @@ fn status_row(ui: &mut egui::Ui, label: &str, ok: bool) {
 
 fn main() -> eframe::Result<()> {
     let args = Args::parse();
+    let api = args.api.unwrap_or_else(infer_default_api);
+    if is_client_mode(args.role.as_deref(), &api) {
+        let options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([560.0, 760.0])
+                .with_title("BMW ENET Client"),
+            ..Default::default()
+        };
+        return eframe::run_native(
+            "BMW ENET Client",
+            options,
+            Box::new(move |_cc| Ok(Box::new(client::ClientApp::new(api)))),
+        );
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([980.0, 680.0])
@@ -516,6 +548,24 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "BMW ENET Gateway",
         options,
-        Box::new(move |_cc| Ok(Box::new(GatewayApp::new(args.api)))),
+        Box::new(move |_cc| Ok(Box::new(GatewayApp::new(api)))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_mode_from_port() {
+        assert!(is_client_mode(None, "http://127.0.0.1:47903"));
+        assert!(!is_client_mode(None, "http://127.0.0.1:47901"));
+    }
+
+    #[test]
+    fn client_mode_from_role() {
+        assert!(is_client_mode(Some("client"), "http://127.0.0.1:47901"));
+        assert!(is_client_mode(Some("Agent"), "http://127.0.0.1:47901"));
+        assert!(!is_client_mode(Some("host"), "http://127.0.0.1:47901"));
+    }
 }

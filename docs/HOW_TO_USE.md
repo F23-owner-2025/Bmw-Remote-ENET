@@ -11,7 +11,7 @@ After installing with **`BMW-ENET-Setup.exe`** (see the [README](../README.md)).
 | **Desktop (Host)** | `enet-gateway` | Tunnel server + dashboard |
 | **Desktop** | `enet-gui` (optional) | Native window for the same status |
 | **Desktop** | ISTA / E-Sys / BimmerUtility | Talks to the car through the gateway |
-| **Laptop (Client)** | `enet-agent` | Plugs into ENET; sends traffic to desktop |
+| **Laptop (Client)** | `enet-agent` + `enet-gui` | Plugs into ENET; native Client window |
 
 You normally only look at the UI on the **desktop**.
 
@@ -28,7 +28,9 @@ You normally only look at the UI on the **desktop**.
 
 ### Native GUI
 
-Double-click the **BMW ENET Gateway** desktop shortcut, or run `enet-gui`.
+- **Desktop:** double-click **BMW ENET Gateway**.
+- **Laptop:** double-click **BMW ENET Client** (talks to `enet-agent` on port 47903).
+- Browser fallback: Host `http://127.0.0.1:47901/` · Client `http://127.0.0.1:47903/`.
 
 ---
 
@@ -37,7 +39,7 @@ Double-click the **BMW ENET Gateway** desktop shortcut, or run `enet-gui`.
 1. On the **Host** UI, copy the **pair code** (example: `BMW-7K2Q`).
 2. On the **laptop**, run Setup → **Client** and paste the code (or leave blank on the same Wi‑Fi).
 3. Leave `enet-agent` / the Client service running.
-4. On the laptop, open **http://127.0.0.1:47903/** (or the **BMW ENET Client Status** shortcut) for Desktop / ENET / Vehicle lights.
+4. On the laptop, open the **BMW ENET Client** shortcut (native window) or **http://127.0.0.1:47903/** for Desktop / ENET / Vehicle lights.
 
 ### Desktop on Ethernet, laptop on Wi‑Fi
 

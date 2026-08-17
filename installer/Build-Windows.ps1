@@ -60,6 +60,7 @@ Copy-Item -Force (Join-Path $releaseDir "enet-setup.exe") $hostDir -ErrorAction 
 Copy-Item -Force (Join-Path $releaseDir "enet-gui.exe") $hostDir -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $releaseDir "enet-agent.exe") $clientDir -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $releaseDir "enet-setup.exe") $clientDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $releaseDir "enet-gui.exe") $clientDir -ErrorAction SilentlyContinue
 
 $hostZip = Join-Path $here "BMW-ENET-Host-windows-x64.zip"
 $clientZip = Join-Path $here "BMW-ENET-Client-windows-x64.zip"

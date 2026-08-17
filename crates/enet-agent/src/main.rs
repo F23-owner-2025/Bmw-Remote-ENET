@@ -1122,7 +1122,14 @@ async fn main() -> anyhow::Result<()> {
         None => {
             eprintln!();
             eprintln!("  BMW ENET Agent is already running.");
-            eprintln!("  Open status: http://127.0.0.1:47903/");
+            eprintln!("  Opening the Client window…");
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    if enet_core::spawn_enet_gui(dir, "http://127.0.0.1:47903").is_err() {
+                        let _ = enet_core::open_http_url("http://127.0.0.1:47903/");
+                    }
+                }
+            }
             eprintln!();
             eprintln!("  If the Host shows Connected but this page says Waiting,");
             eprintln!("  you likely had two Clients fighting. Fix:");

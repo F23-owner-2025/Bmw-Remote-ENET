@@ -63,6 +63,7 @@ jobs:
 
           Copy-Item target/release/enet-agent.exe dist/client/
           Copy-Item target/release/enet-setup.exe dist/client/
+          Copy-Item target/release/enet-gui.exe dist/client/
           if (Test-Path config) { Copy-Item -Recurse config dist/client/config }
 
           Compress-Archive -Path "dist/host/*" -DestinationPath dist/BMW-ENET-Host-windows-x64.zip -Force

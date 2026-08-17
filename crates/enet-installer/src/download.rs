@@ -46,7 +46,7 @@ impl Role {
     pub fn optional_bins(self) -> &'static [&'static str] {
         match self {
             Self::Host => &["enet-gui.exe"],
-            Self::Client => &[],
+            Self::Client => &["enet-gui.exe"],
         }
     }
 

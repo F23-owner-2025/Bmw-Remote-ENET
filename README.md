@@ -17,7 +17,7 @@ You need **one file**. No Rust. No `.bat` scripts.
 
 1. Open this repository’s **Releases** page on GitHub  
    *(while private: you must be signed in; when public: anyone can download)*
-2. Download **`BMW-ENET-Setup.exe`** (use **v0.2.4 or newer**)
+2. Download **`BMW-ENET-Setup.exe`** (use **v0.2.5 or newer**)
 3. Double-click it → allow Administrator
 4. Choose a role and click **Install**:
 
@@ -30,7 +30,7 @@ Files install under `C:\BMW-ENET\Host` or `C:\BMW-ENET\Client`.
 
 Do the same Setup.exe on both PCs (Host on one, Client on the other).
 
-Same home router required (not Guest / AP-isolation Wi‑Fi). If Desktop stays Waiting, open http://127.0.0.1:47903/ → **Auto-find desktop**.
+Same home router required (not Guest / AP-isolation Wi‑Fi). If Desktop stays Waiting, open the **BMW ENET Client** window on the laptop → **Save & auto-find desktop**.
 
 ### If Setup says `VCRUNTIME140.dll` was not found
 

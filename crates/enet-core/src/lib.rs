@@ -12,6 +12,7 @@ pub mod safety;
 pub mod stats;
 pub mod state;
 pub mod updater;
+pub mod win_launch;
 
 pub use config::{GatewayConfig, LogLevel, NetworkMode, Role};
 pub use discovery::{
@@ -29,3 +30,4 @@ pub use safety::{FlashSafetyChecker, FlashSafetyReport, SafetyThresholds};
 pub use stats::PacketStats;
 pub use state::{ConnectionState, GatewayState, VehicleState};
 pub use updater::{default_github_repo, github_repo_slug};
+pub use win_launch::{cmd_start_args, cmd_start_path, open_http_url, spawn_enet_gui};

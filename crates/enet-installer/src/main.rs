@@ -163,7 +163,7 @@ impl SetupApp {
                         } else {
                             summary.push_str(
                                 "\nNext: install Npcap on this laptop if prompted.\n\
-                                 Open http://127.0.0.1:47903/ — Desktop should go green (auto-find).\n\
+                                 Open the BMW ENET Client window — Desktop should go green (auto-find).\n\
                                  Plug ENET into car + laptop, ignition ON, then open ISTA on the desktop.\n",
                             );
                         }
@@ -447,7 +447,7 @@ impl eframe::App for SetupApp {
                                     "💻  Client — Laptop",
                                     &[
                                         "Stays at the car with the ENET cable",
-                                        "Status page :47903, auto-finds Host",
+                                        "Client window + auto-find Host",
                                         "Forwards car frames over Wi‑Fi",
                                     ],
                                 ) {
@@ -474,7 +474,7 @@ impl eframe::App for SetupApp {
                                         "💻  Client — Laptop",
                                         &[
                                             "Stays at the car with the ENET cable",
-                                            "Status page :47903, auto-finds Host",
+                                            "Client window + auto-find Host",
                                             "Forwards car frames over Wi‑Fi",
                                         ],
                                     ) {
@@ -541,7 +541,7 @@ impl eframe::App for SetupApp {
                                 let open_label = if self.role == Role::Host {
                                     "Open dashboard when finished (http://127.0.0.1:47901/)"
                                 } else {
-                                    "Open Client status when finished (http://127.0.0.1:47903/)"
+                                    "Open Client window when finished"
                                 };
                                 ui.checkbox(&mut self.open_dashboard, open_label);
                             });

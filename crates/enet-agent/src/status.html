@@ -470,7 +470,8 @@ async function refresh() {
     if (autoEl && document.activeElement !== autoEl) autoEl.checked = !!s.auto_update;
     document.getElementById('btn-update-now2').style.display = upd ? 'inline-block' : 'none';
   } catch (e) {
-    document.getElementById('sub').textContent = 'Status unavailable — is enet-agent running?';
+    document.getElementById('sub').textContent =
+      'Could not reach http://127.0.0.1:47903/api/status. Re-run Setup so leftover Host/Client processes are stopped, then try again.';
   }
 }
 

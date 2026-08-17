@@ -66,6 +66,9 @@ pub fn run_install(
     let install_dir = default_install_dir(req.role);
     progress(0, 0, &format!("Installing to {}...", install_dir.display()));
 
+    #[cfg(windows)]
+    stop_leftover_processes(progress);
+
     fs::create_dir_all(install_dir.join("config"))?;
     fs::create_dir_all(install_dir.join("logs"))?;
 
@@ -166,12 +169,12 @@ pub fn run_install(
         } else {
             create_desktop_shortcut(
                 &install_dir,
-                "BMW ENET Client Status",
+                "BMW ENET Client",
                 "http://127.0.0.1:47903/",
                 progress,
             )?;
         }
-        // Give the process a moment to bind the status port before opening the browser.
+        // Give the process a moment to bind the status port before opening the UI.
         if req.open_dashboard {
             std::thread::sleep(std::time::Duration::from_secs(2));
             let url = if req.role == Role::Host {
@@ -179,9 +182,18 @@ pub fn run_install(
             } else {
                 "http://127.0.0.1:47903/"
             };
-            let _ = Command::new("cmd")
-                .args(["/C", "start", "", url])
-                .status();
+            let gui = install_dir.join("enet-gui.exe");
+            if gui.is_file() {
+                let mut cmd = Command::new(&gui);
+                if req.role == Role::Client {
+                    cmd.arg("--api").arg("http://127.0.0.1:47903");
+                }
+                let _ = cmd.current_dir(&install_dir).spawn();
+            } else {
+                let _ = Command::new("cmd")
+                    .args(enet_core::cmd_start_args(url))
+                    .status();
+            }
         }
 
         let pair_hint = read_pair_code(&config_path).unwrap_or_else(|| req.pair_code.clone());
@@ -590,27 +602,51 @@ fn start_now(
 }
 
 #[cfg(windows)]
+fn stop_leftover_processes(progress: &ProgressFn) {
+    progress(
+        0,
+        0,
+        "Stopping leftover Host/Client processes so files can be replaced...",
+    );
+    let _ = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Get-Process -Name enet-agent,enet-gateway,enet-gui -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1",
+        ])
+        .status();
+}
+
+/// Desktop shortcut target / arguments. Prefers `enet-gui.exe` so Client never
+/// runs `cmd /C start http://…` (that produces **Windows cannot find '\\'**).
+fn shortcut_launch(install_dir: &Path, title: &str, url: &str) -> (String, String, String) {
+    let gui = install_dir.join("enet-gui.exe");
+    let wd = install_dir.display().to_string();
+    if gui.is_file() {
+        let args = if title.to_ascii_lowercase().contains("client") {
+            "--api http://127.0.0.1:47903".into()
+        } else {
+            String::new()
+        };
+        return (gui.display().to_string(), args, wd);
+    }
+    // Empty window title is required: `start http://127.0.0.1:…` becomes UNC `\\`.
+    (
+        r"C:\Windows\System32\cmd.exe".into(),
+        format!("/C start \"\" \"{url}\""),
+        wd,
+    )
+}
+
+#[cfg(windows)]
 fn create_desktop_shortcut(
     install_dir: &Path,
     title: &str,
     url: &str,
     progress: &ProgressFn,
 ) -> Result<()> {
-    let gui = install_dir.join("enet-gui.exe");
     progress(0, 0, &format!("Creating desktop shortcut ({title})..."));
-    let (target_path, args, workdir) = if gui.is_file() && title.contains("Gateway") {
-        (
-            gui.display().to_string(),
-            String::new(),
-            install_dir.display().to_string(),
-        )
-    } else {
-        (
-            r"C:\Windows\System32\cmd.exe".into(),
-            format!("/C start {url}"),
-            install_dir.display().to_string(),
-        )
-    };
+    let (target_path, args, workdir) = shortcut_launch(install_dir, title, url);
     let script = format!(
         r#"
 $desktop = [Environment]::GetFolderPath('Desktop')
@@ -631,5 +667,51 @@ $s.Save()
     let _ = Command::new("powershell")
         .args(["-NoProfile", "-Command", &script])
         .status();
+    // Remove the old URL-based shortcut that ran `cmd /C start http://…`
+    // and showed "Windows cannot find '\\'".
+    if title.contains("Client") {
+        let cleanup = r#"
+$desktop = [Environment]::GetFolderPath('Desktop')
+$old = Join-Path $desktop 'BMW ENET Client Status.lnk'
+if (Test-Path $old) { Remove-Item $old -Force }
+"#;
+        let _ = Command::new("powershell")
+            .args(["-NoProfile", "-Command", cleanup])
+            .status();
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn client_url_fallback_uses_empty_start_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let (target, args, _) = shortcut_launch(dir.path(), "BMW ENET Client", "http://127.0.0.1:47903/");
+        assert!(target.to_ascii_lowercase().contains("cmd.exe"));
+        assert!(args.starts_with("/C start \"\" "), "{args}");
+        assert!(args.contains("http://127.0.0.1:47903/"));
+        assert!(!args.contains("/C start http://"), "{args}");
+    }
+
+    #[test]
+    fn client_gui_shortcut_points_at_enet_gui() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("enet-gui.exe"), b"fake").unwrap();
+        let (target, args, _) = shortcut_launch(dir.path(), "BMW ENET Client", "http://127.0.0.1:47903/");
+        assert!(target.ends_with("enet-gui.exe"), "{target}");
+        assert_eq!(args, "--api http://127.0.0.1:47903");
+    }
+
+    #[test]
+    fn host_gui_shortcut_has_no_args() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("enet-gui.exe"), b"fake").unwrap();
+        let (target, args, _) = shortcut_launch(dir.path(), "BMW ENET Gateway", "http://127.0.0.1:47901/");
+        assert!(target.ends_with("enet-gui.exe"), "{target}");
+        assert!(args.is_empty(), "{args}");
+    }
 }

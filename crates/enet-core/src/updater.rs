@@ -326,7 +326,7 @@ pub fn restart_self() -> anyhow::Result<()> {
             .join(" ");
         let cmdline = format!(
             "timeout /t 2 /nobreak >nul & start \"\" \"{}\" {}",
-            exe.display(),
+            crate::cmd_start_path(&exe),
             arg_str
         );
         std::process::Command::new("cmd")
