@@ -1,7 +1,7 @@
 # BMW ENET Gateway — Claude Code brief
 
 Public GitHub repo: `https://github.com/F23-owner-2025/Bmw-Remote-ENET`  
-Latest tag: **v0.2.3** (tested 0b54 line published to main)
+Latest tag: **v0.2.4** (Client no longer opens Windows loopback as the car ENET adapter)
 
 ## What this project is
 
@@ -36,7 +36,7 @@ Ports: tunnel UDP **47900**, Host API **47901**, discovery **47902**, Client sta
 
 ## What the user must do next (ISTA)
 
-1. Install GitHub Release **v0.2.3** `BMW-ENET-Setup.exe` (Windows CI builds on tag push).
+1. Install GitHub Release **v0.2.4** `BMW-ENET-Setup.exe` (Windows CI builds on tag push).
 2. Install **Npcap** on desktop **and** laptop: https://npcap.com — enable **WinPcap API-compatible Mode**.
 3. Re-run Setup → Host (desktop) and Client (laptop).
 4. In ISTA select interface **BMW-ENET** (not Wi‑Fi/LAN).
@@ -68,5 +68,5 @@ cargo check -p enet-agent -p enet-gateway -p enet-tunnel -p enet-core
 
 ## User goals still open
 
-- Finish ISTA end-to-end validation after Npcap + v0.2.3 install.
+- Finish ISTA end-to-end validation after Npcap + v0.2.4 install.
 - Prefer no manual PowerShell; auto-detect IPs (done in v0.1.17).
