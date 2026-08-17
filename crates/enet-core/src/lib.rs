@@ -15,8 +15,8 @@ pub mod updater;
 
 pub use config::{GatewayConfig, LogLevel, NetworkMode, Role};
 pub use discovery::{
-    InterfaceInfo, adapter_link_up, detect_candidate_interfaces, looks_like_enet_subnet,
-    pick_enet_interface, score_enet_candidate,
+    InterfaceInfo, adapter_link_up, detect_candidate_interfaces, is_host_virtual_enet,
+    is_software_loopback, looks_like_enet_subnet, pick_enet_interface, score_enet_candidate,
 };
 pub use health::HealthMonitor;
 pub use lan_discovery::{

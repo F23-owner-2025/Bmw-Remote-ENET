@@ -11,7 +11,9 @@ use bytes::Bytes;
 use clap::Parser;
 use enet_core::config::{GatewayConfig, NetworkMode, Role};
 use enet_core::discover_gateways;
-use enet_core::discovery::{adapter_link_up, detect_candidate_interfaces, pick_enet_interface};
+use enet_core::discovery::{
+    adapter_link_up, detect_candidate_interfaces, pick_enet_interface, score_enet_candidate,
+};
 use enet_core::logging::init_logging;
 use enet_core::state::ConnectionState;
 use enet_core::stats::backoff_delay;
@@ -174,6 +176,15 @@ struct StatusJson {
     update_available: Option<String>,
     auto_update: bool,
     password_set: bool,
+    preferred_enet: String,
+    adapters: Vec<AdapterChoice>,
+}
+
+#[derive(Serialize)]
+struct AdapterChoice {
+    name: String,
+    score: i32,
+    usable: bool,
 }
 
 #[derive(Deserialize)]
@@ -303,7 +314,12 @@ async fn build_ethernet_port(
                     enet_tunnel::PcapEthernet::list_devices()
                         .unwrap_or_default()
                         .into_iter()
-                        .find(|line| line.to_lowercase().contains(&want))
+                        .find(|line| {
+                            let lower = line.to_lowercase();
+                            lower.contains(&want)
+                                && !enet_core::is_software_loopback(line, "")
+                                && !enet_core::is_host_virtual_enet(line, "")
+                        })
                         .and_then(|line| {
                             let npf = line.split('|').next().unwrap_or(&line).to_string();
                             try_open(&npf)
@@ -329,10 +345,12 @@ async fn build_ethernet_port(
                 eprintln!("  Run Client as Administrator / SYSTEM and confirm Npcap is installed.");
                 eprintln!();
             } else {
-                *l2_label.write() = "waiting for ENET adapter".into();
+                *l2_label.write() = "waiting for ENET adapter (not loopback)".into();
                 eprintln!();
-                eprintln!("  Npcap is installed but no ENET adapter was detected yet.");
-                eprintln!("  Plug the ENET cable into the car + laptop, then restart Client.");
+                eprintln!("  Npcap is installed but no car ENET adapter was detected.");
+                eprintln!("  Do not use Windows Loopback / Npcap loopback — that is not the car.");
+                eprintln!("  Plug the ENET USB/Ethernet cable into this laptop, ignition ON,");
+                eprintln!("  then open Settings and select that adapter if Auto still misses it.");
                 eprintln!();
             }
         }
@@ -642,6 +660,21 @@ async fn api_status(State(live): State<Arc<LiveStatus>>) -> Json<StatusJson> {
             .map(|u| u.version.clone()),
         auto_update: *live.auto_update.read(),
         password_set: live.password_set.load(Ordering::Relaxed),
+        preferred_enet: GatewayConfig::load(&live.config_path)
+            .ok()
+            .map(|c| c.enet_interface)
+            .unwrap_or_default(),
+        adapters: detect_candidate_interfaces()
+            .into_iter()
+            .map(|i| {
+                let score = score_enet_candidate(&i, "");
+                AdapterChoice {
+                    usable: score > 0,
+                    name: i.name,
+                    score,
+                }
+            })
+            .collect(),
     })
 }
 
@@ -702,6 +735,7 @@ struct AgentSettingsUpdate {
     password: Option<String>,
     generate_pair_code: Option<bool>,
     clear_password: Option<bool>,
+    enet_interface: Option<String>,
 }
 
 async fn api_get_settings(State(live): State<Arc<LiveStatus>>) -> Json<serde_json::Value> {
@@ -709,6 +743,10 @@ async fn api_get_settings(State(live): State<Arc<LiveStatus>>) -> Json<serde_jso
         "auto_update": *live.auto_update.read(),
         "pair_code": live.pair_code.read().clone(),
         "password_set": live.password_set.load(Ordering::Relaxed),
+        "enet_interface": GatewayConfig::load(&live.config_path)
+            .ok()
+            .map(|c| c.enet_interface)
+            .unwrap_or_default(),
         "version": env!("CARGO_PKG_VERSION"),
         "update_available": live.update_available.read().as_ref().map(|u| u.version.clone()),
     }))
@@ -774,6 +812,14 @@ async fn api_set_settings(
         } else {
             "password updated"
         });
+    }
+    if let Some(name) = update.enet_interface {
+        let name = name.trim().to_string();
+        if name != cfg.enet_interface {
+            cfg.enet_interface = name;
+            reconnect = true;
+            parts.push("ENET adapter updated");
+        }
     }
 
     if let Err(e) = cfg.save(&live.config_path) {
@@ -1268,6 +1314,7 @@ async fn main() -> anyhow::Result<()> {
             cfg.password = disk.password;
             cfg.require_crypto = disk.require_crypto;
             cfg.auto_update = disk.auto_update;
+            cfg.enet_interface = disk.enet_interface;
         }
         live.password_set
             .store(!cfg.password.is_empty(), Ordering::Relaxed);

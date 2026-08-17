@@ -54,20 +54,21 @@ impl PcapEthernet {
             )
         })?;
         let want_l = want.to_lowercase();
+        let allow_loopback = !enet_core::is_software_loopback(want, "")
+            && (want_l.contains("bmw-enet") || want_l.contains("km-test"));
         let dev = devices
             .into_iter()
             .find(|d| {
+                let desc = d.desc.as_deref().unwrap_or("");
+                if !allow_loopback && enet_core::is_software_loopback(&d.name, desc) {
+                    return false;
+                }
                 let name_l = d.name.to_lowercase();
-                let desc_l = d
-                    .desc
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_lowercase();
+                let desc_l = desc.to_lowercase();
                 name_l == want_l
                     || desc_l == want_l
                     || name_l.contains(&want_l)
                     || desc_l.contains(&want_l)
-                    || want_l.contains(&name_l)
             })
             .ok_or_else(|| {
                 let listed = pcap::Device::list()

@@ -118,11 +118,11 @@
     text-transform: uppercase; color: var(--faint); margin-bottom: 0.3rem;
   }
   .field .hint { color: var(--muted); font-size: 0.76rem; margin-top: 0.28rem; line-height: 1.4; }
-  .panel input, .card input, .field input {
+  .panel input, .card input, .field input, .field select {
     width: 100%; padding: 0.55rem 0.7rem; border-radius: 8px; border: 1px solid var(--border);
     background: #0c1014; color: var(--text); font-size: 0.94rem; font-family: var(--mono);
   }
-  .panel input:focus, .card input:focus { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+  .panel input:focus, .card input:focus, .field select:focus { outline: 2px solid var(--accent-2); outline-offset: 1px; }
   .inline-fields { display: flex; gap: 0.4rem; align-items: center; }
   .inline-fields input { flex: 1; }
   .actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
@@ -306,6 +306,20 @@
       <div class="msg" id="pair-msg" aria-live="polite"></div>
     </div>
 
+    <div class="card">
+      <div class="title">Car ENET adapter</div>
+      <p>This laptop must capture the <strong>USB/Ethernet cable to the car</strong> — never Windows Loopback. BMW-ENET exists only on the desktop Host for ISTA.</p>
+      <div class="field" style="margin-top:0.7rem">
+        <label for="set-adapter">Adapter</label>
+        <div class="inline-fields">
+          <select id="set-adapter"></select>
+          <button class="primary" type="button" onclick="saveAdapter()">Save</button>
+        </div>
+        <div class="hint" id="adapter-hint">Plug ENET into this laptop, then pick the USB Ethernet adapter if Auto is wrong.</div>
+      </div>
+      <div class="msg" id="adapter-msg" aria-live="polite"></div>
+    </div>
+
     <div class="card" id="settings-box">
       <div class="title">Updates</div>
       <p>Installed <strong id="upd-cur">v?</strong>. Client checks GitHub every time it starts.</p>
@@ -382,7 +396,35 @@ async function refresh() {
     setRow('row-l2', l2);
     document.getElementById('l2-d').textContent = l2
       ? ('Forwarding car frames · ' + (s.l2_label || ''))
-      : ((s.l2_label || 'Npcap not active') + ' — ISTA will not see the car');
+      : ((s.l2_label || 'Npcap not active') + ' — pick the USB ENET adapter in Settings');
+
+    const sel = document.getElementById('set-adapter');
+    if (sel && document.activeElement !== sel) {
+      const adapters = Array.isArray(s.adapters) ? s.adapters : [];
+      const preferred = s.preferred_enet || '';
+      const current = preferred || '';
+      sel.innerHTML = '';
+      const auto = document.createElement('option');
+      auto.value = '';
+      auto.textContent = 'Auto (USB Ethernet / ENET cable)';
+      sel.appendChild(auto);
+      adapters.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a.name;
+        opt.textContent = a.usable ? a.name : (a.name + ' — not car ENET');
+        opt.disabled = !a.usable;
+        if (a.name === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      if (preferred) sel.value = preferred;
+    }
+    const hint = document.getElementById('adapter-hint');
+    if (hint) {
+      const usable = (s.adapters || []).filter(a => a.usable);
+      hint.textContent = usable.length
+        ? ('Usable: ' + usable.map(a => a.name).join(', ') + '. Loopback is never the car.')
+        : 'No car ENET adapter yet. Plug the ENET USB cable into this laptop. Do not select Loopback.';
+    }
 
     const enet = !!s.enet_link;
     setBadge(document.getElementById('enet-b'), enet ? 'PLUGGED' : 'UNPLUGGED', enet ? 'ok' : 'off');
@@ -605,6 +647,17 @@ async function clearPassword() {
     refresh();
   } catch (e) {
     setMsg('pair-msg', String(e), 'err');
+  }
+}
+
+async function saveAdapter() {
+  const name = document.getElementById('set-adapter').value;
+  try {
+    const j = await postSettings({ enet_interface: name });
+    setMsg('adapter-msg', j.message || (name ? 'Adapter saved — reconnecting' : 'Auto adapter saved'), j.ok ? 'ok' : 'err');
+    refresh();
+  } catch (e) {
+    setMsg('adapter-msg', String(e), 'err');
   }
 }
 

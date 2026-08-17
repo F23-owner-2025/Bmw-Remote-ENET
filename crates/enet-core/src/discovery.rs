@@ -68,15 +68,21 @@ pub fn detect_candidate_interfaces() -> Vec<InterfaceInfo> {
             has_link_local,
         });
     }
-    // Interfaces if_addrs saw but sysinfo missed.
+    // Interfaces if_addrs saw but sysinfo missed. Skip 127.0.0.1-only loopback.
     for (name, ipv4) in addrs_by_name {
+        if ipv4.iter().all(|ip| match ip {
+            IpAddr::V4(v4) => v4.is_loopback(),
+            IpAddr::V6(v6) => v6.is_loopback(),
+        }) {
+            continue;
+        }
         let has_link_local = ipv4.iter().copied().any(looks_like_enet_subnet);
         out.push(InterfaceInfo {
             name,
             description: String::new(),
             mac: String::new(),
             ipv4,
-            is_up: true,
+            is_up: false,
             has_link_local,
         });
     }
@@ -84,8 +90,36 @@ pub fn detect_candidate_interfaces() -> Vec<InterfaceInfo> {
     out
 }
 
-/// Score an interface for likelihood of being the BMW ENET NIC.
+/// Windows software loopback / Npcap localhost capture — never the car ENET cable.
+pub fn is_software_loopback(name: &str, description: &str) -> bool {
+    let blob = format!("{name} {description}").to_lowercase();
+    let compact = blob.replace([' ', '_'], "-");
+    blob.contains("loopback pseudo-interface")
+        || compact.contains("loopback-interface")
+        || compact.contains("npf-loopback")
+        || blob.contains("adapter for loopback traffic")
+        || blob.contains("npcap loopback")
+        || blob.contains("teredo tunneling")
+        || blob.contains("isatap")
+}
+
+/// Host-only virtual NIC (`BMW-ENET` / KM-TEST). The laptop Client must not capture this.
+pub fn is_host_virtual_enet(name: &str, description: &str) -> bool {
+    let blob = format!("{name} {description}").to_lowercase();
+    blob.contains("bmw-enet") || blob.contains("km-test")
+}
+
+/// Score an interface for likelihood of being the BMW ENET NIC (car cable).
 pub fn score_enet_candidate(iface: &InterfaceInfo, preferred_name: &str) -> i32 {
+    let desc = iface.description.to_lowercase();
+    let name = iface.name.to_lowercase();
+    if is_software_loopback(&iface.name, &iface.description) {
+        return -1000;
+    }
+    if is_host_virtual_enet(&iface.name, &iface.description) {
+        return -1000;
+    }
+
     let mut score = 0;
     if !preferred_name.is_empty() && iface.name.eq_ignore_ascii_case(preferred_name) {
         score += 100;
@@ -93,9 +127,7 @@ pub fn score_enet_candidate(iface: &InterfaceInfo, preferred_name: &str) -> i32 
     if iface.has_link_local {
         score += 50;
     }
-    let desc = iface.description.to_lowercase();
-    let name = iface.name.to_lowercase();
-    for needle in ["enet", "realtek", "usb", "ethernet"] {
+    for needle in ["enet", "realtek", "ax88179", "rtl815", "usb", "ethernet"] {
         if desc.contains(needle) || name.contains(needle) {
             score += 5;
         }
@@ -237,10 +269,17 @@ fn adapter_link_up_uncached(name: &str) -> bool {
 }
 
 /// Pick the best ENET candidate, if any.
+///
+/// Never returns Windows/Npcap loopback or the Host `BMW-ENET` virtual NIC.
 pub fn pick_enet_interface(preferred: &str) -> Option<InterfaceInfo> {
     let mut ifaces = detect_candidate_interfaces();
     ifaces.sort_by_key(|i| std::cmp::Reverse(score_enet_candidate(i, preferred)));
-    ifaces.into_iter().next().filter(|i| score_enet_candidate(i, preferred) > 0)
+    ifaces.into_iter().find(|i| {
+        let s = score_enet_candidate(i, preferred);
+        s > 0
+            && !is_software_loopback(&i.name, &i.description)
+            && !is_host_virtual_enet(&i.name, &i.description)
+    })
 }
 
 #[cfg(test)]
@@ -273,5 +312,29 @@ mod tests {
             has_link_local: false,
         };
         assert!(score_enet_candidate(&a, "Ethernet 3") > score_enet_candidate(&b, "Ethernet 3"));
+    }
+
+    #[test]
+    fn scoring_rejects_windows_loopback() {
+        let lo = InterfaceInfo {
+            name: "Loopback Pseudo-Interface 1".into(),
+            description: String::new(),
+            mac: String::new(),
+            ipv4: vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
+            is_up: true,
+            has_link_local: false,
+        };
+        assert!(score_enet_candidate(&lo, "") < 0);
+        assert!(is_software_loopback("loopback-interface 1", ""));
+        assert!(is_software_loopback(r"\Device\NPF_Loopback", "Adapter for loopback traffic capture"));
+        let host = InterfaceInfo {
+            name: "BMW-ENET".into(),
+            description: "Microsoft KM-TEST Loopback Adapter".into(),
+            mac: String::new(),
+            ipv4: vec![IpAddr::V4(Ipv4Addr::new(169, 254, 1, 1))],
+            is_up: true,
+            has_link_local: true,
+        };
+        assert!(score_enet_candidate(&host, "") < 0);
     }
 }
