@@ -26,9 +26,6 @@ You need **one file**. No Rust. No `.bat` scripts.
 | Desktop with ISTA / E-Sys | **Host (Desktop)** |
 | Laptop with the ENET cable | **Client (Laptop)** |
 
-5. **Host:** browser opens to http://127.0.0.1:47901/ — note the **pair code**  
-   **Client:** paste that pair code (recommended). Desktop IP is **auto-detected** (DHCP / changing IPs OK).
-
 Files install under `C:\BMW-ENET\Host` or `C:\BMW-ENET\Client`.
 
 Do the same Setup.exe on both PCs (Host on one, Client on the other).
